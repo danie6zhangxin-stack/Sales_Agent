@@ -1,6 +1,6 @@
 streamlit
 pandas
-pandasai>=2.0.0
+pandasai
 google-generativeai
 matplotlib
 astor
