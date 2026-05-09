@@ -1,7 +1,7 @@
 streamlit
 pandas
 pandasai>=2.0.0,<3.0.0
-google-generativeai
+langchain-google-genai
 matplotlib
 astor
 pyyaml
