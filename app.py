@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 from pandasai import Agent
-from pandasai.llm import GoogleGemini
+# 【核心修改】：使用 LangChain 框架来调用最新的 Gemini 1.5 模型
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # --- 1. 页面设置 ---
 st.set_page_config(page_title="Club Med Sales AI Agent", layout="wide", page_icon="🤖")
@@ -11,7 +12,7 @@ st.markdown("""
     .main { background-color: #f5f7f9; }
     .stTextInput { border-radius: 20px; }
     </style>
-    """, unsafe_allow_html=True)    # <--- 正确写法
+    """, unsafe_allow_html=True) # 修正了之前的渲染参数
 
 # 优先读取 Streamlit Cloud 的 Secrets，如果本地测试没配则用默认值
 try:
@@ -19,7 +20,8 @@ try:
 except:
     api_key = "你的API_KEY" 
 
-llm = GoogleGemini(api_key=api_key, model="gemini-1.5-flash")
+# 【核心修改】：初始化 LangChain 版本的 Gemini，指定 1.5-flash 最新模型
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
 
 # --- 2. 数据侧边栏 ---
 with st.sidebar:
@@ -76,14 +78,14 @@ if uploaded_file:
         1. 【口径法则】：当用户问“X月的销售额”时，默认使用 'Consumption Month' 和 'Consumption Year'（入住时间）来计算。只有当用户明确说“下单时间”或“预订月份”时，才使用 'Sales Month'，并在回答前提醒用户：“当前查询基于下单时间 (Sales Calendar)”。
         2. 【币种法则】：'BV (EUR)' 是欧元，'BV (Local Currency)' 是原币种。默认计算销售额时，请使用 'BV (EUR)' 进行统一汇总。除非用户特别指明要看人民币(RMB/CNY)或原币，才使用 'BV (Local Currency)'。
         3. 【TA 过滤法则】：'TA Group' 列中值为 'Direct/Non-TA' 的数据代表无明确旅行社信息的直销订单。当用户查询“某个具体 TA 的业绩”或“TA 排名”时，请过滤掉 'Direct/Non-TA'。但在计算某个度假村 (Destination Resort) 或市场 (Market) 的总业绩时，必须包含所有数据（不能过滤掉它）。
-        4. 【展示规则】：数值请保留两位小数并加上千分位逗号。如果发现销售额有显著差异，请主动按度假村拆解并分析原因。主动生成美观的柱状图或折线图。
+        4. 【展示规则】：数值请保留两位小数并加上千分位逗号。如果发现销售额有显著差异，请主动按度假村拆解并分析原因。
         """
 
-        # 【最新升级】：使用新版的 Agent
+        # 配置 Agent：注意 save_charts 必须是 False，防止云端无限重启死循环
         agent = Agent(df, config={
             "llm": llm,
             "custom_instructions": custom_instructions,
-            "save_charts": False
+            "save_charts": False 
         })
 
     with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
