@@ -3,3 +3,4 @@ pandas
 pandasai
 google-generativeai
 matplotlib
+astor
