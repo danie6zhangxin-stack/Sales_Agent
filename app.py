@@ -11,7 +11,7 @@ st.markdown("""
     .main { background-color: #f5f7f9; }
     .stTextInput { border-radius: 20px; }
     </style>
-    """, unsafe_allow_stdio=True)
+    """, unsafe_allow_html=True)    # <--- 正确写法
 
 # 优先读取 Streamlit Cloud 的 Secrets，如果本地测试没配则用默认值
 try:
