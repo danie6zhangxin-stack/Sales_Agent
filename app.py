@@ -82,4 +82,40 @@ if uploaded_file:
         # 【最新升级】：使用新版的 Agent
         agent = Agent(df, config={
             "llm": llm,
-            "custom_instructions
+            "custom_instructions": custom_instructions,
+            "save_charts": True
+        })
+
+    with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
+        st.dataframe(df.head(5))
+
+    # --- 交互问答区 ---
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    if prompt := st.chat_input("您可以这样问：2025年12月，Yabuli 的总销售额是多少？哪个 TA 贡献最大？"):
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("AI 正在调用底层数据运算..."):
+                try:
+                    # 使用最新版的 API 调用对话
+                    response = agent.chat(prompt)
+                    
+                    # 确保无论 AI 返回的是图表对象、文字还是数字，都能正确渲染
+                    if isinstance(response, str):
+                        st.markdown(response)
+                    else:
+                        st.write(response)
+                        
+                    st.session_state.chat_history.append({"role": "assistant", "content": str(response)})
+                except Exception as e:
+                    st.error(f"分析出错：{e}")
+else:
+    st.warning("👈 请先上传 SalesData.csv 进行分析")
