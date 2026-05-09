@@ -19,7 +19,7 @@ try:
 except:
     api_key = "你的API_KEY" 
 
-llm = GoogleGemini(api_key=api_key)
+llm = GoogleGemini(api_key=api_key, model="gemini-1.5-flash")
 
 # --- 2. 数据侧边栏 ---
 with st.sidebar:
