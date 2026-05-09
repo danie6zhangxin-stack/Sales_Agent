@@ -20,8 +20,8 @@ try:
 except:
     api_key = "你的API_KEY" 
 
-# 【核心修改】：初始化 LangChain 版本的 Gemini，指定 1.5-flash 最新模型
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
+# 【核心修改】：初始化 LangChain 版本的 Gemini，指定 2.5-flash 最新模型
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
 
 # --- 2. 数据侧边栏 ---
 with st.sidebar:
