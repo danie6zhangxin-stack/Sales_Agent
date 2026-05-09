@@ -83,7 +83,7 @@ if uploaded_file:
         agent = Agent(df, config={
             "llm": llm,
             "custom_instructions": custom_instructions,
-            "save_charts": True
+            "save_charts": False
         })
 
     with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
