@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from pandasai import SmartDataframe
+from pandasai import Agent
 from pandasai.llm import GoogleGemini
 
 # --- 1. 页面设置 ---
@@ -13,10 +13,11 @@ st.markdown("""
     </style>
     """, unsafe_allow_stdio=True)
 
+# 优先读取 Streamlit Cloud 的 Secrets，如果本地测试没配则用默认值
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
-    api_key = "你的API_KEY" # 记得在 Streamlit Cloud 的 secrets 里配置
+    api_key = "你的API_KEY" 
 
 llm = GoogleGemini(api_key=api_key)
 
@@ -37,7 +38,7 @@ if uploaded_file:
         # 清除表头前后可能隐藏的空格
         df.columns = [col.strip() for col in df.columns]
 
-        # 2. 字段翻译映射 (根据截图)
+        # 2. 字段翻译映射 (根据你的截图业务逻辑)
         col_mapping = {
             'CONSUMPTION_CALENDAR[Month Name]': 'Consumption Month',
             'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Consumption Month Num',
@@ -78,35 +79,7 @@ if uploaded_file:
         4. 【展示规则】：数值请保留两位小数并加上千分位逗号。如果发现销售额有显著差异，请主动按度假村拆解并分析原因。主动生成美观的柱状图或折线图。
         """
 
-        smart_df = SmartDataframe(df, config={
+        # 【最新升级】：使用新版的 Agent
+        agent = Agent(df, config={
             "llm": llm,
-            "custom_instructions": custom_instructions,
-            "save_charts": True
-        })
-
-    with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
-        st.dataframe(df.head(5))
-
-    # --- 交互问答区 ---
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if prompt := st.chat_input("您可以这样问：2025年12月，Yabuli 的总销售额是多少？哪个 TA 贡献最大？"):
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("AI 正在调用底层数据运算..."):
-                try:
-                    response = smart_df.chat(prompt)
-                    st.markdown(response)
-                    st.session_state.chat_history.append({"role": "assistant", "content": response})
-                except Exception as e:
-                    st.error(f"分析出错：{e}")
-else:
-    st.warning("👈 请先上传 SalesData.csv 进行分析")
+            "custom_instructions
