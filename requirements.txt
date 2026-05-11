@@ -6,3 +6,4 @@ matplotlib
 pyyaml
 pydantic
 Astor
+seaborn
