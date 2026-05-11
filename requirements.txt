@@ -1,9 +1,10 @@
 streamlit
-pandas
+pandas<2.2.0
+numpy<2.0.0
 pandasai>=2.0.0,<3.0.0
 langchain-openai
 matplotlib
+seaborn
 pyyaml
 pydantic
 Astor
-seaborn
