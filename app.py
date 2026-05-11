@@ -3,7 +3,7 @@ import pandas as pd
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg')  # 强制离线渲染，防止云端图表崩溃
+matplotlib.use('Agg') # 强制离线渲染，防止云端崩溃
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
@@ -28,23 +28,42 @@ CSS_STYLE = """
     
     /* 核心指标卡片美化 */
     div[data-testid="metric-container"] {
-        background-color: white; border-radius: 8px; padding: 15px 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.03); border-top: 4px solid var(--cm-terracotta);
+        background-color: white; border-radius: 4px; padding: 15px 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta);
     }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 32px; }
     
     /* 透视表美化 */
-    .stDataFrame { border: 1px solid #EAECEF; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
+    .stDataFrame { border: 1px solid #EAECEF; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); }
     
     /* 商业风按键 */
     .stButton>button { 
-        border-radius: 4px; background-color: white; color: var(--cm-blue); 
+        border-radius: 2px; background-color: white; color: var(--cm-blue); 
         border: 1px solid var(--cm-blue); padding: 0.5rem 1rem; font-weight: 600; width: 100%; transition: all 0.3s ease;
     }
     .stButton>button:hover { background-color: var(--cm-blue); color: white; border-color: var(--cm-blue); }
     
-    /* 聊天气泡极简处理 */
-    div[data-testid="stChatMessage"] { background-color: white; border-radius: 8px; border: none; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.02); border-left: 4px solid var(--cm-sage); }
+    /* ==========================================
+       🌟 聊天气泡与头像的高定视觉重塑
+       ========================================== */
+    /* 1. 聊天气泡背景全透明，仅保留极简底部分割线 */
+    div[data-testid="stChatMessage"] { 
+        background-color: transparent !important; 
+        border: none !important; 
+        border-bottom: 1px solid #EAECEF !important; 
+        padding: 1.5rem 0.5rem !important; 
+        box-shadow: none !important; 
+        margin-bottom: 0 !important;
+    }
+    /* 去除最后一个气泡的底线 */
+    div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
+    
+    /* 2. 强制替换默认红/黄色头像背景，统一为高级深海蓝 */
+    div[data-testid="stChatMessageAvatarUser"] { background-color: var(--cm-blue) !important; color: white !important;}
+    div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important;}
+    
+    /* 侧边栏美化 */
+    .stSidebar { background-color: white !important; border-right: 1px solid #EAECEF; }
 </style>
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
@@ -67,7 +86,7 @@ with st.sidebar:
     st.markdown("<h2 style='color:#A64B35; border-bottom: 1px solid #ddd; padding-bottom: 10px;'>ClubMed Ψ <br><span style='font-size:16px; font-family:Inter; color:#1D263B;'>Executive Dashboard</span></h2>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload Data (CSV)", type=['csv'])
     st.divider()
-    st.caption("Designed for Management Strategy. Featuring BV, HN, ADR analysis & Automated YoY tracking.")
+    st.caption("Strategic Decision Platform | Featuring BV, HN, ADR analysis & Deep Dive reporting.")
 
 # --- 4. 核心数据引擎 (财务级处理) ---
 if uploaded_file:
@@ -79,14 +98,13 @@ if uploaded_file:
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
         'REF_SALES_MARKET[Market]': 'Market',
         'REF_DESTINATION[Resort]': 'Resort',
-        'REF_CML_AGENCY[Group_TA_cml]': 'TA Group',
-        'REF_DESTINATION[Destination type Asia]': 'Dest Type',
+        'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
+        'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
         '[BVSTS___final]': 'BV',
         '[HN_final]': 'HN'
     }
     df.rename(columns=col_mapping, inplace=True, errors='ignore')
 
-    # 数字清洗与 ADR 自动计算
     for c in ['BV', 'HN']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -110,9 +128,7 @@ if uploaded_file:
     # 模块 B：高级透视表 (Pivot Table)
     # ==========================================
     st.markdown("### 📊 Market Breakdown (Pivot)")
-    # 按 Market 生成透视表，展示 BV, HN, ADR
     pivot_df = pd.pivot_table(df, values=['BV', 'HN', 'ADR'], index=['Market'], aggfunc={'BV': 'sum', 'HN': 'sum', 'ADR': 'mean'})
-    # 格式化数字方便阅读
     styled_pivot = pivot_df.style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}', 'ADR': '€ {:,.2f}'})
     st.dataframe(styled_pivot, use_container_width=True)
 
@@ -129,7 +145,6 @@ if uploaded_file:
 
     if chart_to_draw:
         fig, ax = plt.subplots(figsize=(10, 4), dpi=200)
-        # 极简画图风格：去掉上和右的边框
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         
@@ -141,7 +156,6 @@ if uploaded_file:
         
         elif chart_to_draw == 'line':
             trend_data = df.groupby('Month')['BV'].sum()
-            # 简单按首字母排序防乱，如果是真月份可进一步处理
             trend_data.plot(kind='line', marker='o', color='#1D263B', linewidth=2.5, ax=ax)
             ax.set_title("BV Consumption Monthly Trend", family='Playfair Display', color='#1D263B', size=16)
             ax.set_ylabel("BV (EUR)")
@@ -154,43 +168,70 @@ if uploaded_file:
             ax.set_title("Volume Share by Market", family='Playfair Display', color='#1D263B', size=16)
 
         st.pyplot(fig)
-        plt.clf() # 画完清空，防止重叠
+        plt.clf()
 
     # ==========================================
-    # 模块 D：AI 深度业务顾问 (Ask Questions)
+    # 模块 D：AI 深度业务顾问 (Deep-Dive Analysis)
     # ==========================================
     st.divider()
-    st.markdown("### 🤖 Strategy Advisor (AI)")
+    st.markdown("### 🤖 Strategy Advisor (Deep Dive)")
     
-    # 限制 AI 只做数据计算和洞察，防止它擅自画图（图表我们已经在模块 C 处理了）
-    custom_instructions = """
-    You are a McKinsey Strategy Consultant for ClubMed. Respond in ENGLISH.
-    - When asked about a specific period or resort, calculate Total BV, HN, and ADR.
-    - ALWAYS calculate the YoY Variance % (Difference) if you can identify current vs previous year data.
-    - Present the data cleanly using Markdown Tables.
-    - DO NOT write Python code to generate charts (the UI handles it). Focus entirely on deep numerical analysis and strategic business insights.
+    custom_instr = """
+    You are a Senior McKinsey Consultant. For EVERY query about sales or BV performance, you MUST provide a response structured exactly as follows:
+
+    1. **Executive Summary**: 
+       - Total BV, HN, and ADR for the requested period/segment. 
+
+    2. **Composition Breakdown**:
+       - Create a Markdown table showing the BV contribution By Resort.
+       - Create a Markdown table showing the breakdown By Dest_Type (Destination Type).
+
+    3. **YoY Variance Analysis**:
+       - IMPORTANT: Automatically fetch data for the SAME EXACT months in the previous year (Year - 1).
+       - Show the Variance Amount and Variance %.
+       - Point out which resort or category drove the change.
+
+    CRITICAL DATA RULES:
+    - ALWAYS check exact string matches for Month (e.g., 'June' instead of 'JUN' or '06') to prevent returning 0.
+    - If user asks for 'Jan to May', sum the values for 'January', 'February', 'March', 'April', 'May'.
+    - DO NOT generate matplotlib code. Use Markdown formatting.
     """
 
-    agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instructions, "save_charts": False, "enable_cache": False})
+    agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
-    if prompt := st.chat_input("E.g., What is the BV, HN, and ADR for Changbaishan in June 2026? What is the YoY difference?"):
+    # 会话状态管理
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # 渲染历史对话 (不再使用系统默认的难看色彩，强制极简排版)
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
+
+    if prompt := st.chat_input("E.g., Provide a deep dive analysis for NJ XXY. Jan to May 2026 vs last year."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.write(prompt)
+            
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing Variance and Generating Insights..."):
+            with st.spinner("Executing multi-dimensional deep dive..."):
                 try:
                     response = agent.chat(prompt)
+                    # 避免 response 直接是 DataFrame 对象导致报错，转化为字符串渲染
+                    if not isinstance(response, str):
+                        response = str(response)
+                    
                     st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
                 except Exception as e:
                     st.error(f"Analysis Error: {e}")
 
 else:
-    # 极简欢迎界面
     st.markdown("""
         <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
             <h1 style="font-size: 3rem; margin-bottom: 1rem; color: #1D263B;">Data Meets Strategy.</h1>
             <p style="color: #6c757d; max-width: 500px; font-size: 1.1rem; line-height: 1.6;">
-                Upload your secure sales dataset. Access McKinsey-standard Dashboards, Pivot Analytics, and AI-driven YoY insights.
+                Upload your secure sales dataset. Access McKinsey-standard Dashboards, Pivot Analytics, and AI-driven YoY Deep Dives.
             </p>
         </div>
     """, unsafe_allow_html=True)
