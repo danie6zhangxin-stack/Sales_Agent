@@ -75,36 +75,31 @@ if uploaded_file:
     
     df['TA Group'] = df['TA Group'].fillna('Direct Sales')
 
-    # --- 5. AI 顾问指令集 (核心升级) ---
-    custom_instructions = """
-    你不再是机器人，而是 ClubMed 的首席业务顾问。你的回答必须专业、优雅、有洞察力。
-    
-    【回答结构规范】：
-    1. **Executive Summary (总结)**: 第一句话直接给出核心结论（总金额、YOY 增减）。
-    2. **Deep Dive (多维拆解)**: 
-       - 如果查度假村：必须列出总额，对比去年同期。拆解 [Market] (中国 vs 香港) 的占比。
-       - 如果查市场：必须按 [Destination Type] (Ski, Sun, Joyview) 拆解，并计算 YOY。
-    3. **Top Performance**: 必须列出销售额前 10 的 [TA Group]，并生成一份从高到低的柱状图。
-    4. **Market Insights (归因分析)**: 
-       - 结合 2026 年 5 月的行业动态：如 "Quiet Luxury" (静奢风) 带来的 Exclusive Collection 增长，或者特定的签证政策/气候原因。
-       - 主动指出表现最差或最好的分类，并猜测原因。
-    5. **Next Steps (主动追问)**: 结尾必须问一个能帮助决策的问题。例如：“是否需要我为您深挖该渠道下滑的具体细项？”
-    
-    【绘图要求】：
-    - 使用 ClubMed 调色盘：Deep Blue (#1D263B) 和 Terracotta (#A64B35)。
-    - 图表标题必须简洁有力。
-    
-    【财务准则】：
-    - 默认使用欧元 (BV (EUR))。若查询中国/香港单店，请主动同时提供原币种 (BV (Local Currency))。
-    """
+    # 5. 极简精准指令集 (防超载模式)
+        custom_instructions = """
+        你是 ClubMed 的数据计算引擎。请严格遵守以下规则，绝对不要生成任何图表，不要写长篇报告，不要做任何市场归因分析。
+        
+        【核心计算任务】：
+        只要用户询问销售额，你必须直接、快速地计算并只输出以下内容：
+        1. 当期销售数字 (Current BV)。
+        2. 上一年同期的销售数字 (Previous Year BV，即 Consumption Year 减去 1)。
+        3. 同比增减百分比 (Variance % = (当期 - 去年) / 去年 * 100%)。
+        4. 如果用户特别要求了细分市场（例如中国和香港占比），简单列出数字和百分比即可。
+        
+        【财务准则】：
+        - 默认计算 'BV (EUR)'。
+        - 如果涉及中国区度假村（如长白山），必须同时计算 'BV (Local Currency)' (人民币)。
+        - 数值保留两位小数，加上千分位逗号。回答尽量简短，像报表一样清晰。
+        """
 
-    agent = Agent(df, config={
-        "llm": llm,
-        "custom_instructions": custom_instructions,
-        "save_charts": False,
-        "enforce_privacy": False,
-        "enable_cache": False
-    })
+        # 配置 Agent：关闭所有会消耗额外算力的功能
+        agent = Agent(df, config={
+            "llm": llm,
+            "custom_instructions": custom_instructions,
+            "save_charts": False,
+            "enforce_privacy": False,
+            "enable_cache": False
+        })
 
     # --- 6. 交互界面 ---
     st.markdown("### 📊 业务洞察看板")
