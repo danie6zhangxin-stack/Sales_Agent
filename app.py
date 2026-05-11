@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np  # <--- 修复点 1：全局强行引入 numpy，防止 AI 找不到
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
@@ -17,10 +18,10 @@ CSS_STYLE = """
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
     
     :root {
-        --cm-blue: #1D263B;      /* 深海蓝 */
-        --cm-terracotta: #A64B35; /* 陶土红 */
-        --cm-sage: #A4B6B0;      /* 鼠尾草绿 */
-        --cm-beige: #F5F5F0;     /* 极简灰白底色 */
+        --cm-blue: #1D263B;      
+        --cm-terracotta: #A64B35; 
+        --cm-sage: #A4B6B0;      
+        --cm-beige: #F5F5F0;     
     }
     
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
@@ -43,10 +44,7 @@ CSS_STYLE = """
     }
     .stButton>button:hover { background-color: var(--cm-blue); color: white; border-color: var(--cm-blue); }
     
-    /* ==========================================
-       🌟 聊天气泡与头像的高定视觉重塑
-       ========================================== */
-    /* 1. 聊天气泡背景全透明，仅保留极简底部分割线 */
+    /* 聊天气泡与头像的高定视觉重塑 */
     div[data-testid="stChatMessage"] { 
         background-color: transparent !important; 
         border: none !important; 
@@ -55,14 +53,11 @@ CSS_STYLE = """
         box-shadow: none !important; 
         margin-bottom: 0 !important;
     }
-    /* 去除最后一个气泡的底线 */
     div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
     
-    /* 2. 强制替换默认红/黄色头像背景，统一为高级深海蓝 */
     div[data-testid="stChatMessageAvatarUser"] { background-color: var(--cm-blue) !important; color: white !important;}
     div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important;}
     
-    /* 侧边栏美化 */
     .stSidebar { background-color: white !important; border-right: 1px solid #EAECEF; }
 </style>
 """
@@ -111,9 +106,7 @@ if uploaded_file:
     
     df['ADR'] = (df['BV'] / df['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
 
-    # ==========================================
-    # 模块 A：全局指标看板 (Executive Summary)
-    # ==========================================
+    # --- 模块 A：全局指标看板 ---
     st.markdown("### 📈 Executive Summary")
     total_bv = df['BV'].sum()
     total_hn = df['HN'].sum()
@@ -124,17 +117,13 @@ if uploaded_file:
     c2.metric("Total HN (Nights)", f"{total_hn:,.0f}")
     c3.metric("Average ADR (EUR)", f"€ {avg_adr:,.2f}")
 
-    # ==========================================
-    # 模块 B：高级透视表 (Pivot Table)
-    # ==========================================
+    # --- 模块 B：高级透视表 ---
     st.markdown("### 📊 Market Breakdown (Pivot)")
     pivot_df = pd.pivot_table(df, values=['BV', 'HN', 'ADR'], index=['Market'], aggfunc={'BV': 'sum', 'HN': 'sum', 'ADR': 'mean'})
     styled_pivot = pivot_df.style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}', 'ADR': '€ {:,.2f}'})
     st.dataframe(styled_pivot, use_container_width=True)
 
-    # ==========================================
-    # 模块 C：一键生成图表 (Manual Chart Buttons)
-    # ==========================================
+    # --- 模块 C：一键生成图表 ---
     st.markdown("### 📉 Visual Analytics")
     b1, b2, b3 = st.columns(3)
     
@@ -170,40 +159,33 @@ if uploaded_file:
         st.pyplot(fig)
         plt.clf()
 
-    # ==========================================
-    # 模块 D：AI 深度业务顾问 (Deep-Dive Analysis)
-    # ==========================================
+    # --- 模块 D：AI 深度业务顾问 ---
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive)")
     
     custom_instr = """
     You are a Senior McKinsey Consultant. For EVERY query about sales or BV performance, you MUST provide a response structured exactly as follows:
 
-    1. **Executive Summary**: 
-       - Total BV, HN, and ADR for the requested period/segment. 
-
+    1. **Executive Summary**: Total BV, HN, and ADR for the requested period/segment. 
     2. **Composition Breakdown**:
-       - Create a Markdown table showing the BV contribution By Resort.
-       - Create a Markdown table showing the breakdown By Dest_Type (Destination Type).
-
+       - Markdown table showing the BV contribution By Resort.
+       - Markdown table showing the breakdown By Dest_Type (Destination Type).
     3. **YoY Variance Analysis**:
-       - IMPORTANT: Automatically fetch data for the SAME EXACT months in the previous year (Year - 1).
+       - Automatically fetch data for the SAME EXACT months in the previous year (Year - 1).
        - Show the Variance Amount and Variance %.
-       - Point out which resort or category drove the change.
 
     CRITICAL DATA RULES:
-    - ALWAYS check exact string matches for Month (e.g., 'June' instead of 'JUN' or '06') to prevent returning 0.
+    - ALWAYS include 'import numpy as np' and 'import pandas as pd' in your underlying python code to prevent NameError.
+    - ALWAYS check exact string matches for Month (e.g., 'June' instead of 'JUN' or '06').
     - If user asks for 'Jan to May', sum the values for 'January', 'February', 'March', 'April', 'May'.
-    - DO NOT generate matplotlib code. Use Markdown formatting.
+    - Use Markdown formatting exclusively for your final output. DO NOT attempt to generate matplotlib charts.
     """
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
-    # 会话状态管理
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 渲染历史对话 (不再使用系统默认的难看色彩，强制极简排版)
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
@@ -217,7 +199,6 @@ if uploaded_file:
             with st.spinner("Executing multi-dimensional deep dive..."):
                 try:
                     response = agent.chat(prompt)
-                    # 避免 response 直接是 DataFrame 对象导致报错，转化为字符串渲染
                     if not isinstance(response, str):
                         response = str(response)
                     
