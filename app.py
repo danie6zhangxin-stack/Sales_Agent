@@ -85,7 +85,9 @@ if uploaded_file:
         agent = Agent(df, config={
             "llm": llm,
             "custom_instructions": custom_instructions,
-            "save_charts": False 
+            "save_charts": False,
+            "enforce_privacy": False,  # <--- 关闭隐私拦截
+            "enable_cache": False      # <--- 关闭缓存，防止记住报错
         })
 
     with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
