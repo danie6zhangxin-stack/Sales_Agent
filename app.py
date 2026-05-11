@@ -37,7 +37,7 @@ except:
     api_key = "YOUR_API_KEY"
 
 # 使用最新的 Gemini 2.0/2.5 引擎
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=api_key)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=api_key)
 
 # --- 3. 侧边栏设计 (极简风) ---
 with st.sidebar:
