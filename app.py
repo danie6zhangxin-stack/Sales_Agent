@@ -1,125 +1,149 @@
 import streamlit as st
 import pandas as pd
 from pandasai import Agent
-# 【核心修改】：使用 LangChain 框架来调用最新的 Gemini 1.5 模型
 from langchain_google_genai import ChatGoogleGenerativeAI
+import matplotlib.pyplot as plt
 
-# --- 1. 页面设置 ---
-st.set_page_config(page_title="Club Med Sales AI Agent", layout="wide", page_icon="🤖")
+# --- 1. 极简品牌视觉定制 (ClubMed 2026 配色方案) ---
+st.set_page_config(page_title="ClubMed AI Assistant Ψ", layout="wide", page_icon="Ψ")
 
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stTextInput { border-radius: 20px; }
+    /* 核心配色：Terracotta, Deep Blue, Sage Green, Beige */
+    :root {
+        --cm-blue: #1D263B;
+        --cm-terracotta: #A64B35;
+        --cm-sage: #A4B6B0;
+        --cm-beige: #F5F5F0;
+    }
+    
+    .main { background-color: var(--cm-beige); color: var(--cm-blue); }
+    .stButton>button { border-radius: 50px; background-color: var(--cm-terracotta); color: white; border: none; padding: 0.5rem 2rem; }
+    .stTextInput>div>div>input { border-radius: 15px; border: 1px solid var(--cm-sage); }
+    
+    /* 极简卡片样式 */
+    div[data-testid="stExpander"] { background-color: white; border: none; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    
+    /* 标题美化 */
+    h1, h2, h3 { font-family: 'Playfair Display', serif; color: var(--cm-blue); }
+    .cm-logo { font-size: 2rem; font-weight: bold; color: var(--cm-terracotta); margin-bottom: 2rem; }
     </style>
-    """, unsafe_allow_html=True) # 修正了之前的渲染参数
+    """, unsafe_allow_html=True)
 
-# 优先读取 Streamlit Cloud 的 Secrets，如果本地测试没配则用默认值
+# --- 2. 安全初始化 AI 引擎 ---
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
-    api_key = "你的API_KEY" 
+    api_key = "YOUR_API_KEY"
 
-# 【核心修改】：初始化 LangChain 版本的 Gemini，指定 2.5-flash 最新模型
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=api_key)
+# 使用最新的 Gemini 2.0/2.5 引擎
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", google_api_key=api_key)
 
-# --- 2. 数据侧边栏 ---
+# --- 3. 侧边栏设计 (极简风) ---
 with st.sidebar:
-    st.header("📂 数据中心")
-    uploaded_file = st.file_uploader("上传 SalesData.csv", type=['csv'])
-    st.info("🔒 内存即时处理，关闭后数据销毁，绝对安全。")
+    st.markdown('<div class="cm-logo">ClubMed Ψ <br><span style="font-size:0.8rem; font-weight:normal; color:#666;">L\'Esprit Libre Intelligence</span></div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Upload SalesData.csv", type=['csv'])
+    st.divider()
+    st.markdown("### 💡 建议查询场景")
+    st.caption("• 长白山本季度表现如何？对比去年情况。")
+    st.caption("• 分析中国市场，按度假村类型拆解并分析原因。")
+    st.caption("• 哪个渠道导致了本月 Beach 类产品的下滑？")
 
-# --- 3. 核心主程序 ---
-st.title("🤖 Club Med 销售洞察智能体")
-
+# --- 4. 数据预处理逻辑 (财务级清洗) ---
 if uploaded_file:
-    with st.spinner("正在加载并进行财务级数据清洗..."):
-        # 1. 读取原始数据
-        df = pd.read_csv(uploaded_file)
-        
-        # 清除表头前后可能隐藏的空格
-        df.columns = [col.strip() for col in df.columns]
+    df = pd.read_csv(uploaded_file)
+    df.columns = [col.strip() for col in df.columns]
 
-        # 2. 字段翻译映射 (根据你的截图业务逻辑)
-        col_mapping = {
-            'CONSUMPTION_CALENDAR[Month Name]': 'Consumption Month',
-            'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Consumption Month Num',
-            'REF_SALES_MARKET[Business_unit]': 'Business Unit',
-            'REF_SALES_MARKET[Market]': 'Market',
-            'VENTES[Resort]': 'Resort',
-            'SALES_CALENDAR[Sales_date]': 'Sales Date',
-            'CONSUMPTION_CALENDAR[Consumption_year]': 'Consumption Year',
-            'REF_CML_AGENCY[Group_TA_cml]': 'TA Group',
-            'REF_CML_AGENCY[Region_cml]': 'TA Region',
-            'REF_CML_AGENCY[Channel_cml]': 'TA Channel',
-            'REF_CML_AGENCY[Channel_ type_cml]': 'TA Channel Type',
-            'SALES_CALENDAR[Sales_Month_name]': 'Sales Month',
-            'REF_DESTINATION[Destination type Asia]': 'Destination Type',
-            'REF_DESTINATION[Resort]': 'Destination Resort',
-            '[BVSTS___final]': 'BV (EUR)',
-            '[HN_final]': 'HN',
-            '[BVSTS_loc_final]': 'BV (Local Currency)'
-        }
-        df.rename(columns=col_mapping, inplace=True)
+    # 字段映射
+    col_mapping = {
+        'CONSUMPTION_CALENDAR[Month Name]': 'Consumption Month',
+        'CONSUMPTION_CALENDAR[Consumption_year]': 'Consumption Year',
+        'REF_SALES_MARKET[Market]': 'Market',
+        'REF_DESTINATION[Resort]': 'Resort',
+        'REF_CML_AGENCY[Group_TA_cml]': 'TA Group',
+        'REF_DESTINATION[Destination type Asia]': 'Destination Type',
+        '[BVSTS___final]': 'BV (EUR)',
+        '[BVSTS_loc_final]': 'BV (Local Currency)',
+        '[HN_final]': 'HN'
+    }
+    df.rename(columns=col_mapping, inplace=True)
 
-        # 3. 数据类型清理 (去除千分位逗号并转为数字)
-        for num_col in ['BV (EUR)', 'HN', 'BV (Local Currency)']:
-            if num_col in df.columns:
-                df[num_col] = df[num_col].astype(str).str.replace(',', '').str.replace(' ', '').astype(float)
-        
-        # 4. 空值逻辑处理 (无 TA 名字的标记为 Direct/Non-TA)
-        if 'TA Group' in df.columns:
-            df['TA Group'] = df['TA Group'].fillna('Direct/Non-TA')
+    # 格式化数字
+    for c in ['BV (EUR)', 'BV (Local Currency)', 'HN']:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.replace(',', '').astype(float)
+    
+    df['TA Group'] = df['TA Group'].fillna('Direct Sales')
 
-        # 5. Club Med 专属 AI 业务指令集 (Prompt)
-        custom_instructions = """
-        你是 Club Med 的首席数据分析师。在回答问题时，请严格遵守以下业务逻辑：
-        
-        1. 【口径法则】：当用户问“X月的销售额”时，默认使用 'Consumption Month' 和 'Consumption Year'（入住时间）来计算。只有当用户明确说“下单时间”或“预订月份”时，才使用 'Sales Month'，并在回答前提醒用户：“当前查询基于下单时间 (Sales Calendar)”。
-        2. 【币种法则】：'BV (EUR)' 是欧元，'BV (Local Currency)' 是原币种。默认计算销售额时，请使用 'BV (EUR)' 进行统一汇总。除非用户特别指明要看人民币(RMB/CNY)或原币，才使用 'BV (Local Currency)'。
-        3. 【TA 过滤法则】：'TA Group' 列中值为 'Direct/Non-TA' 的数据代表无明确旅行社信息的直销订单。当用户查询“某个具体 TA 的业绩”或“TA 排名”时，请过滤掉 'Direct/Non-TA'。但在计算某个度假村 (Destination Resort) 或市场 (Market) 的总业绩时，必须包含所有数据（不能过滤掉它）。
-        4. 【展示规则】：数值请保留两位小数并加上千分位逗号。如果发现销售额有显著差异，请主动按度假村拆解并分析原因。
-        """
+    # --- 5. AI 顾问指令集 (核心升级) ---
+    custom_instructions = """
+    你不再是机器人，而是 ClubMed 的首席业务顾问。你的回答必须专业、优雅、有洞察力。
+    
+    【回答结构规范】：
+    1. **Executive Summary (总结)**: 第一句话直接给出核心结论（总金额、YOY 增减）。
+    2. **Deep Dive (多维拆解)**: 
+       - 如果查度假村：必须列出总额，对比去年同期。拆解 [Market] (中国 vs 香港) 的占比。
+       - 如果查市场：必须按 [Destination Type] (Ski, Sun, Joyview) 拆解，并计算 YOY。
+    3. **Top Performance**: 必须列出销售额前 10 的 [TA Group]，并生成一份从高到低的柱状图。
+    4. **Market Insights (归因分析)**: 
+       - 结合 2026 年 5 月的行业动态：如 "Quiet Luxury" (静奢风) 带来的 Exclusive Collection 增长，或者特定的签证政策/气候原因。
+       - 主动指出表现最差或最好的分类，并猜测原因。
+    5. **Next Steps (主动追问)**: 结尾必须问一个能帮助决策的问题。例如：“是否需要我为您深挖该渠道下滑的具体细项？”
+    
+    【绘图要求】：
+    - 使用 ClubMed 调色盘：Deep Blue (#1D263B) 和 Terracotta (#A64B35)。
+    - 图表标题必须简洁有力。
+    
+    【财务准则】：
+    - 默认使用欧元 (BV (EUR))。若查询中国/香港单店，请主动同时提供原币种 (BV (Local Currency))。
+    """
 
-        # 配置 Agent：注意 save_charts 必须是 False，防止云端无限重启死循环
-        agent = Agent(df, config={
-            "llm": llm,
-            "custom_instructions": custom_instructions,
-            "save_charts": False,
-            "enforce_privacy": False,  # <--- 关闭隐私拦截
-            "enable_cache": False      # <--- 关闭缓存，防止记住报错
-        })
+    agent = Agent(df, config={
+        "llm": llm,
+        "custom_instructions": custom_instructions,
+        "save_charts": False,
+        "enforce_privacy": False,
+        "enable_cache": False
+    })
 
-    with st.expander("✅ 数据清洗完毕！点击查看标准表头"):
-        st.dataframe(df.head(5))
+    # --- 6. 交互界面 ---
+    st.markdown("### 📊 业务洞察看板")
+    
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-    # --- 交互问答区 ---
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
 
-    for msg in st.session_state.chat_history:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    if prompt := st.chat_input("您可以这样问：2025年12月，Yabuli 的总销售额是多少？哪个 TA 贡献最大？"):
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
+    if prompt := st.chat_input("询问 AI 顾问，例如：'分析 2026 年 6 月长白山的表现'"):
+        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("AI 正在调用底层数据运算..."):
+            with st.spinner("AI 顾问正在生成深度洞察..."):
                 try:
-                    # 使用最新版的 API 调用对话
+                    # 运行 AI 逻辑
                     response = agent.chat(prompt)
                     
-                    # 确保无论 AI 返回的是图表对象、文字还是数字，都能正确渲染
+                    # 渲染结果
                     if isinstance(response, str):
                         st.markdown(response)
                     else:
                         st.write(response)
-                        
-                    st.session_state.chat_history.append({"role": "assistant", "content": str(response)})
+                    
+                    st.session_state.messages.append({"role": "assistant", "content": str(response)})
+                    
+                    # 模拟“发送给老板”的按钮
+                    st.button("✨ 生成管理层 Dashboard (PDF)")
                 except Exception as e:
-                    st.error(f"分析出错：{e}")
+                    st.error(f"分析模块暂时不可用，请检查数据格式或 API 状态。错误详情: {e}")
 else:
-    st.warning("👈 请先上传 SalesData.csv 进行分析")
+    # 极简欢迎页
+    st.markdown("""
+        <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+            <h1 style="font-size: 3rem; margin-bottom: 1rem;">Experience L'Esprit Libre</h1>
+            <p style="color: #666; max-width: 600px;">欢迎使用 ClubMed 销售智能助手。请上传最新的销售底稿，开始您的数据探索之旅。</p>
+        </div>
+    """, unsafe_allow_html=True)
