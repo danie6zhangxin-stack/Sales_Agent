@@ -85,13 +85,19 @@ def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
                       legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'), yaxis=dict(visible=False))
     return fig
 
-# --- 🌟 AI 麦肯锡级洞察生成器 ---
+# --- 🌟 AI 麦肯锡级洞察生成器 (专属推断原因版) ---
 def generate_pacing_insights(cy_data, py_data, context_desc):
     cy_bv = cy_data['BV'].sum() / 1000 
     py_bv = py_data['BV'].sum() / 1000
     pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0
     
-    sys_prompt = "You are a Senior Strategy Consultant at ClubMed. Analyze the variance between Current Year (CY) and Previous Year (PY) booking pacing. Provide a professional, boardroom-ready analysis (max 4 sentences). Mention if the pace is 'accelerating' or 'lagging' and specify which Destination Types are driving the change."
+    # 🌟 强制 AI 像刚才一样输出深度商业原因
+    sys_prompt = """You are a Senior Strategy Consultant at ClubMed. Analyze the variance between Current Year (CY) and Previous Year (PY) booking pacing. 
+    1. Detail the variance in k€ and %. 
+    2. Mention if the pace is 'accelerating' or 'lagging' and specify which Destination Types are driving the change.
+    3. CRITICAL: You MUST explicitly suggest POSSIBLE REASONS behind this variance (e.g., shifts in booking window, strategic pivots toward premium/sun resorts, baseline anomalies, campaign effects, or organic growth).
+    Write a 4-sentence boardroom-ready analysis."""
+    
     user_prompt = f"Context: {context_desc}\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed CY Data:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
     
     try:
@@ -125,7 +131,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("### 📅 Booking Window (Pacing)")
         max_date = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         
-        # 🌟 完美融合：快捷按钮与自定义日历的智能切换
         preset = st.selectbox("Quick Range Select", ["Last 3 Months", "Last Week", "Last 1 Month", "Last 6 Months", "Last 1 Year", "Custom Range"])
         
         if preset == "Custom Range":
@@ -141,7 +146,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             end_date = max_date
             st.info(f"📅 Active Window:\n**{start_date.strftime('%d %b %Y')}** to **{end_date.strftime('%d %b %Y')}**")
         
-        # 计算去年同期
         if start_date <= end_date:
             try:
                 py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
@@ -186,7 +190,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问 (Concat合并大法)
+    # 🌟 5. 智能 AI 顾问 (提取数据 + 输出深度分析)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor")
@@ -200,8 +204,16 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing targeted pacing data..."):
-                agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False})
+            with st.spinner("Extracting data and drafting executive summary..."):
+                
+                # 金箍：确保一号大脑绝对不说话
+                strict_instructions = """
+                You are a programmatic Python code generator. 
+                YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. 
+                DO NOT OUTPUT ANY CONVERSATIONAL TEXT OR EXPLANATION.
+                """
+                
+                agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instructions})
                 
                 hacked_prompt = f"""
                 User Question: {prompt}
@@ -219,10 +231,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 
                 # Apply mask if name exists, otherwise just copy
                 mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_cy_filtered = dfs[0][mask_cy].copy()
+                df_cy_filtered = dfs[0][mask_cy].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[0].copy()
                 
                 mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_py_filtered = dfs[1][mask_py].copy()
+                df_py_filtered = dfs[1][mask_py].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[1].copy()
                 
                 df_cy_filtered['Period'] = 'CY'
                 df_py_filtered['Period'] = 'PY'
@@ -248,6 +260,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                             st.dataframe(display_df.style.format({'BV (k€)': '{:,.0f}k', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
                             
                             st.markdown("**📉 Strategy Insight:**")
+                            
+                            # 二号大脑开始工作，输出你喜欢的那些推测文字！
                             insights = generate_pacing_insights(ai_cy_df, ai_py_df, prompt)
                             st.info(f"💡 **Executive Report:**\n\n{insights}")
                             st.session_state.messages.append({"role": "assistant", "content": insights})
