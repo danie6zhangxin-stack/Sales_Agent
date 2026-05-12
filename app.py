@@ -56,7 +56,7 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 核心数据清洗引擎 ---
+# --- 3. 核心数据清洗引擎 (🌟 恢复销售时间线) ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
@@ -65,6 +65,8 @@ def load_and_clean(file):
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
+        'SALES_CALENDAR[Sales_date]': 'Sales_Date',             # 🌟 恢复 Sales_Date
+        'SALES_CALENDAR[Sales_Month_name]': 'Sales_Month',      # 🌟 恢复 Sales_Month
         'REF_SALES_MARKET[Market]': 'Market',
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
@@ -74,9 +76,13 @@ def load_and_clean(file):
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
-    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
+    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month', 'Sales_Month']:
         if col in data.columns:
             data[col] = data[col].astype(str).str.strip()
+            
+    # 格式化日期列，方便 AI 调用
+    if 'Sales_Date' in data.columns:
+        data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     
     for col in ['BV', 'HN']:
         if col in data.columns:
@@ -91,7 +97,7 @@ def load_and_clean(file):
     return data
 
 # ==========================================
-# 🌟 核心提取器 (字典/DataFrame 通吃)
+# 🌟 核心提取器
 # ==========================================
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
@@ -111,6 +117,10 @@ with st.sidebar:
 
 if uploaded_file:
     df = load_and_clean(uploaded_file)
+    
+    # 🌟 动态抓取白名单，告诉 AI 哪些才是真正的 Resort
+    valid_resorts = [str(r) for r in df['Resort'].unique() if str(r).lower() != 'nan']
+    valid_resorts_str = ", ".join(valid_resorts)
     
     with st.sidebar:
         st.markdown("### ⚙️ Global Controls")
@@ -155,6 +165,7 @@ if uploaded_file:
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
+    st.caption("💡 *Pro tip: Specify whether you want to analyze by 'Sales Date' or 'Consumption Month'.*")
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -166,30 +177,25 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极防呆指令：指名道姓封锁 Resort 列 和 Sales_date 列
+    # 🌟 终极架构指令：赋予 AI 真实业务常识
     custom_instr = f"""
-    You are a Data Analyst writing Python code for PandasAI.
+    You are an expert Data Analyst writing Python code for PandasAI.
+    Output VALID PYTHON CODE ONLY inside ```python and ```.
+    Assign final result to `result` as a pure `pd.DataFrame`.
 
-    === CRITICAL EXECUTION RULES ===
-    1. Output VALID PYTHON CODE ONLY inside ```python and ```.
-    2. The dataframe is `dfs[0]`. Assign final result to `result`. DO NOT assign a dictionary, assign the raw `pd.DataFrame` directly to `result`.
+    === 1. ENTITY RECOGNITION (CRITICAL) ===
+    - VALID RESORTS: The ONLY valid resorts in this dataset are: [{valid_resorts_str}].
+    - AGENCIES/TARGETS: If the user asks about a target (e.g., "NJ XXY") and it is NOT in the valid resorts list, it is a Travel Agency (`TA_Group`). 
+      You MUST filter using `TA_Group` (e.g., `dfs[0]['TA_Group'].str.contains('NJ XXY', case=False, na=False)`). NEVER search for agencies in the Resort column!
 
-    === BULLETPROOF FILTERING RULES (DO NOT DISOBEY) ===
-    1. DATE FILTERING: 
-       - NEVER use `SALES_CALENDAR[Sales_date]`. It is completely forbidden!
-       - ALWAYS use the `Year` and `Month_Num` columns. 
-       - For 2026: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`
-       - For Jan to May: `df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]`
-       
-    2. TARGET MATCHING ("NJ XXY"): 
-       - "NJ XXY" is a Travel Agency (`TA_Group`), NOT a Resort.
-       - NEVER search for "NJ XXY" in the `Resort` column! This is a fatal error!
-       - ALWAYS use `TA_Group` with `str.contains`: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
+    === 2. DUAL-TIMELINE ROUTING (CRITICAL) ===
+    There are TWO distinct time dimensions in `dfs[0]`. Choose based on user intent:
+    - CONSUMPTION (Default / Stay / Performance): Uses `Year` (e.g., 2026) and `Month_Num` (1-12). If the user just says "Jan to May", assume Consumption. Filter: `dfs[0]['Month_Num'].between(1, 5)`.
+    - SALES (Booked / Sold / Sales Date): Uses `Sales_Date` (datetime) and `Sales_Month` (string). ONLY use this if the user explicitly mentions "sales", "sold", or "sales date". Filter example: `dfs[0]['Sales_Date'].dt.month.between(1, 5)`.
 
-    === OUTPUT FORMAT ===
-    1. Group `df_filtered` by `Month` AND `Dest_Type` (if asked for breakdown).
-    2. Sum `BV` and `HN`. Calculate `ADR` = `BV` / `HN`.
-    3. Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
+    === 3. OUTPUT FORMAT ===
+    Group the filtered data appropriately, sum `BV` and `HN`, calculate `ADR` = `BV` / `HN`.
+    Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
     
     === MEMORY ===
     {history_context}
@@ -204,19 +210,19 @@ if uploaded_file:
             else: 
                 st.markdown(m["content"])
 
-    if prompt := st.chat_input("Show me the monthly BV, HN, and ADR for NJ XXY from Jan to May 2026."):
+    if prompt := st.chat_input("E.g., Analyze consumption BV for NJ XXY from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing strict rules filtering..."):
+            with st.spinner("Decoding entities and routing time dimensions..."):
                 try:
                     response = agent.chat(prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): AI successfully ran the code, but 0 records matched.")
+                            st.warning("⚠️ 查无数据 (Empty Table): AI filtered correctly, but 0 records matched.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
@@ -226,7 +232,7 @@ if uploaded_file:
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
                     
-                    # 🌟 随时查看 AI 底层代码，防止它再作妖
+                    # 查看底牌
                     code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
                     if code_executed:
                         with st.expander("🛠️ View AI Generated Code (For Debugging)"):
