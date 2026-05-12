@@ -95,7 +95,6 @@ def load_and_clean(file):
 # ==========================================
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
-    # 针对 PandasAI 瞎包字典的情况 ( {'type':'dataframe', 'value': ...} )
     if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame):
         return resp['value']
     if hasattr(resp, 'to_pandas'): return resp.to_pandas()
@@ -167,23 +166,28 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极防空表指令：明确区分 TA_Group 和 Resort
+    # 🌟 终极防呆指令：指名道姓封锁 Resort 列 和 Sales_date 列
     custom_instr = f"""
     You are a Data Analyst writing Python code for PandasAI.
 
     === CRITICAL EXECUTION RULES ===
     1. Output VALID PYTHON CODE ONLY inside ```python and ```.
-    2. The dataframe is `dfs[0]`. Assign final result to `result`. Do NOT assign a dictionary, assign the raw pd.DataFrame to `result` directly.
+    2. The dataframe is `dfs[0]`. Assign final result to `result`. DO NOT assign a dictionary, assign the raw `pd.DataFrame` directly to `result`.
 
-    === BULLETPROOF FILTERING RULES ===
-    1. YEAR: ALWAYS filter `df_filtered = dfs[0][dfs[0]['Year'] == 2026]` first.
-    2. COLUMN SELECTION (CRITICAL):
-       - If the user asks about an Agency or Target like "NJ XXY", you MUST search in the `TA_Group` column! NOT the Resort column!
-       - CORRECT CODE: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
-    3. MONTHS: Use `Month_Num` (1-12). For "Jan to May", use `df_filtered[df_filtered['Month_Num'].between(1, 5)]`.
+    === BULLETPROOF FILTERING RULES (DO NOT DISOBEY) ===
+    1. DATE FILTERING: 
+       - NEVER use `SALES_CALENDAR[Sales_date]`. It is completely forbidden!
+       - ALWAYS use the `Year` and `Month_Num` columns. 
+       - For 2026: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`
+       - For Jan to May: `df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]`
+       
+    2. TARGET MATCHING ("NJ XXY"): 
+       - "NJ XXY" is a Travel Agency (`TA_Group`), NOT a Resort.
+       - NEVER search for "NJ XXY" in the `Resort` column! This is a fatal error!
+       - ALWAYS use `TA_Group` with `str.contains`: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
 
     === OUTPUT FORMAT ===
-    1. Group `df_filtered` by `Month` AND `Dest_Type`.
+    1. Group `df_filtered` by `Month` AND `Dest_Type` (if asked for breakdown).
     2. Sum `BV` and `HN`. Calculate `ADR` = `BV` / `HN`.
     3. Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
     
@@ -205,7 +209,7 @@ if uploaded_file:
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing corrected agency filtering code..."):
+            with st.spinner("Executing strict rules filtering..."):
                 try:
                     response = agent.chat(prompt)
                     safe_df = extract_dataframe(response)
@@ -222,7 +226,7 @@ if uploaded_file:
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
                     
-                    # 🌟 保留透视镜，以后任何错误直接看底牌
+                    # 🌟 随时查看 AI 底层代码，防止它再作妖
                     code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
                     if code_executed:
                         with st.expander("🛠️ View AI Generated Code (For Debugging)"):
