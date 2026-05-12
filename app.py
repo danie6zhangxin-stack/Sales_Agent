@@ -152,7 +152,8 @@ if uploaded_file:
     2. **MANDATORY DEST_TYPE BREAKDOWN**: Whenever analyzing sales, BV, or Market/TA Group performance, you MUST provide a breakdown by `Dest_Type` (Destination type Asia).
     3. **YoY VARIANCE**: Always compare metrics with the EXACT SAME period in the previous year and calculate the Variance %.
     4. **STRICT FILTERING**: If a user specifies a target (e.g. TA Group or Resort), explicitly filter the dataframe first.
-    5. **NO HALLUCINATIONS**: Output only factual data in Markdown tables. Include 'import numpy as np' and 'import pandas as pd'.
+    5. **CRITICAL DATATYPE RULE (PREVENT CRASH)**: NEVER return a raw float or integer as your final result. The final output MUST ALWAYS be a String (Markdown formatted text) or a Pandas DataFrame. If your calculation results in a number, you MUST cast it to a string (e.g., `result = str(calculated_number)`).
+    6. **NO HALLUCINATIONS**: Output only factual data. ALWAYS include 'import numpy as np' and 'import pandas as pd' in your code.
     """
 
     # 初始化具有缓存的 AI 代理 (保证上下文记忆)
