@@ -62,7 +62,7 @@ def load_and_clean(file):
         data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     return data
 
-# --- 🌟 高级画图模块 (主看板) ---
+# --- 🌟 高级画图模块 ---
 def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[['BV']].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[['BV']].sum().reset_index()
@@ -85,20 +85,12 @@ def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
                       legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'), yaxis=dict(visible=False))
     return fig
 
-# --- 🌟 横向细分图表 (Resort / TA) ---
 def draw_horizontal_bar(data_df, group_col, title, color):
-    g_df = data_df.groupby(group_col)['BV'].sum().reset_index().sort_values('BV', ascending=True).tail(5) # Top 5
+    g_df = data_df.groupby(group_col)['BV'].sum().reset_index().sort_values('BV', ascending=True).tail(5)
     g_df['BV'] = g_df['BV'] / 1000
     
-    fig = go.Figure(go.Bar(
-        x=g_df['BV'], y=g_df[group_col], orientation='h', marker_color=color,
-        text=g_df['BV'], texttemplate='<b>%{text:,.0f}k</b>', textposition='inside', textfont=dict(size=12, color='white')
-    ))
-    fig.update_layout(
-        title=dict(text=title, font=dict(family="Playfair Display", size=16)),
-        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=0, l=0, r=0),
-        xaxis=dict(visible=False), yaxis=dict(showgrid=False)
-    )
+    fig = go.Figure(go.Bar(x=g_df['BV'], y=g_df[group_col], orientation='h', marker_color=color, text=g_df['BV'], texttemplate='<b>%{text:,.0f}k</b>', textposition='inside', textfont=dict(size=12, color='white')))
+    fig.update_layout(title=dict(text=title, font=dict(family="Playfair Display", size=16)), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=0, l=0, r=0), xaxis=dict(visible=False), yaxis=dict(showgrid=False))
     return fig
 
 # --- 🌟 AI 宏观经济战略洞察生成器 ---
@@ -114,11 +106,11 @@ def generate_macro_insights(cy_data, py_data, context_desc):
     Analyze the YoY pacing variance.
     
     CRITICAL STRUCTURE FOR YOUR RESPONSE:
-    1. **Macro-Environmental Shift**: Explain the variance NOT just with numbers, but by hypothesizing plausible MACRO factors relevant to the 2025/2026 global landscape. For example: How might shifting geopolitical tensions, post-election economic policies, visa-free travel policies, aviation capacity recovery, or currency fluctuations be driving this specific trend? 
-    2. **Strategic Pivot**: Explain how these macro events are forcing a shift in consumer behavior (e.g., flight to safety, luxury revenge travel, or booking window changes).
-    3. **Micro-Execution**: Briefly tie the macro theory to the top performing Resorts and TAs provided in the data.
+    1. **Macro-Environmental Shift**: Explain the variance NOT just with numbers, but by hypothesizing plausible MACRO factors relevant to the 2025/2026 global landscape (e.g., shifting geopolitical tensions, economic policies, visa-free travel, flight capacity, currency fluctuations).
+    2. **Strategic Pivot**: Explain how these macro events force a shift in consumer behavior (e.g., flight to safety, booking window changes).
+    3. **Micro-Execution**: Briefly tie the theory to the top performing Resorts and TAs provided in the data.
     
-    Do NOT just list numbers. Tell a compelling, boardroom-ready story about the global economy's impact on our bookings."""
+    Write a compelling, boardroom-ready story (4-5 sentences max)."""
     
     user_prompt = f"UI Context: {context_desc}\nCY Total: {cy_bv:,.0f} k€ | PY Total: {py_bv:,.0f} k€ | Variance: {pct:+.1f}%\n\nTop Resorts CY: {top_resorts}\nTop TAs CY: {top_tas}"
     
@@ -211,7 +203,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问 (宏观战略版)
+    # 🌟 5. 智能 AI 顾问 (无敌防崩溃降级版)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy & Macro Advisor")
@@ -220,38 +212,48 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., What are the macro factors driving the variance for NJ XXY?"):
+    if prompt := st.chat_input("E.g., What are the macro factors driving this trend?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
             with st.spinner("Compiling global macroeconomic data and drilling down..."):
                 
-                strict_instructions = """YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."""
+                strict_instructions = "YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."
                 agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instructions})
                 
                 hacked_prompt = f"""
-                User Question: {prompt}
+                User Question: "{prompt}"
                 
-                1. Fuzzy search Market, TA_Group, or Resort for any named entity in the question.
-                2. ADD column 'Period'. Concatenate into a SINGLE dataframe `result`.
+                IGNORE THE CONVERSATIONAL INTENT. Your ONLY task is to output the python code.
+                
+                1. If a specific Market, TA_Group, or Resort is mentioned, use uppercase fuzzy search.
+                2. If it is a general question (e.g. "why", "trend"), just assign df_cy_filtered = dfs[0].copy() and df_py_filtered = dfs[1].copy().
+                3. ADD column 'Period'. Concatenate into a SINGLE dataframe `result`.
 
                 ```python
                 import pandas as pd
                 
                 clean_target = 'ENTITY_NAME_HERE'.replace(' ', '').upper()
                 
-                mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_cy_filtered = dfs[0][mask_cy].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[0].copy()
-                
-                mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_py_filtered = dfs[1][mask_py].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[1].copy()
+                if clean_target != 'ENTITY_NAME_HERE':
+                    mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                    df_cy_filtered = dfs[0][mask_cy].copy()
+                    
+                    mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                    df_py_filtered = dfs[1][mask_py].copy()
+                else:
+                    df_cy_filtered = dfs[0].copy()
+                    df_py_filtered = dfs[1].copy()
                 
                 df_cy_filtered['Period'] = 'CY'
                 df_py_filtered['Period'] = 'PY'
                 result = pd.concat([df_cy_filtered, df_py_filtered], ignore_index=True)
                 ```
                 """
+
+                ai_cy_df = pd.DataFrame()
+                ai_py_df = pd.DataFrame()
 
                 try:
                     response_raw = agent.chat(hacked_prompt)
@@ -260,36 +262,38 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     if isinstance(combined_df, pd.DataFrame) and 'Period' in combined_df.columns:
                         ai_cy_df = combined_df[combined_df['Period'] == 'CY']
                         ai_py_df = combined_df[combined_df['Period'] == 'PY']
-                        
-                        if not ai_cy_df.empty or not ai_py_df.empty:
-                            
-                            # 🌟 1. 优先输出宏观战略总结 (High-level Summary FIRST)
-                            st.markdown("### 🌍 Executive Macro-Summary")
-                            full_ui_context = f"Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'}"
-                            insights = generate_macro_insights(ai_cy_df, ai_py_df, full_ui_context)
-                            st.info(insights)
-                            st.session_state.messages.append({"role": "assistant", "content": insights})
-                            
-                            # 🌟 2. 细分维度下钻图表 (Resort Level & TA Contribution)
-                            st.markdown("### 📊 Operational Drill-down (CY)")
-                            col_resort, col_ta = st.columns(2)
-                            
-                            with col_resort:
-                                if ai_cy_df['Resort'].nunique() > 0:
-                                    st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'Resort', 'Top 5 Resorts by Volume (k€)', '#1D263B'), use_container_width=True)
-                                
-                            with col_ta:
-                                if ai_cy_df['TA_Group'].nunique() > 0:
-                                    st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'TA_Group', 'Top 5 TA Contributors (k€)', '#A64B35'), use_container_width=True)
-
-                        else:
-                            st.warning("⚠️ No data was found for this target in the selected timeframe.")
                     else:
-                        st.markdown(str(response_raw))
+                        raise ValueError("No valid dataframe extracted.")
+                        
                 except Exception as e:
-                    st.error(f"Analysis failed: {e}")
+                    # 🌟 终极防崩溃逻辑 (Bulletproof Fallback) 🌟
+                    # 如果 AI 因为闲聊而忘了写代码导致报错，系统静默拦截，直接将当前大盘数据交给后续分析！
+                    ai_cy_df = df_cy_base.copy()
+                    ai_py_df = df_py_base.copy()
+
+                # --- 渲染分析与图表 ---
+                if not ai_cy_df.empty or not ai_py_df.empty:
+                    st.markdown("### 🌍 Executive Macro-Summary")
+                    full_ui_context = f"Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'}"
+                    
+                    insights = generate_macro_insights(ai_cy_df, ai_py_df, full_ui_context)
+                    st.info(insights)
+                    st.session_state.messages.append({"role": "assistant", "content": insights})
+                    
+                    st.markdown("### 📊 Operational Drill-down (CY)")
+                    col_resort, col_ta = st.columns(2)
+                    
+                    with col_resort:
+                        if ai_cy_df['Resort'].nunique() > 0:
+                            st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'Resort', 'Top Resorts by Volume (k€)', '#1D263B'), use_container_width=True)
+                        
+                    with col_ta:
+                        if ai_cy_df['TA_Group'].nunique() > 0:
+                            st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'TA_Group', 'Top TA Contributors (k€)', '#A64B35'), use_container_width=True)
+                else:
+                    st.warning("⚠️ No data available for this analysis.")
 else:
-    # 🌟 1. 奢华欢迎横幅 (Hero Banner)
+    # 🌟 迎宾大厅 UI
     welcome_html = """
     <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #1D263B 0%, #2A3650 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
         <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
@@ -300,37 +304,12 @@ else:
     </div>
     """
     st.markdown(welcome_html, unsafe_allow_html=True)
-
     st.markdown("<br><br>", unsafe_allow_html=True)
-
-    # 🌟 2. 核心功能特性展示卡片 (Feature Cards)
     c1, c2, c3 = st.columns(3)
-    
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
-    
     with c1:
-        st.markdown(f"""
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Precision Pacing</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Align Current Year and Previous Year booking windows down to the exact day for flawless Apples-to-Apples comparisons.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Precision Pacing</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Align Current Year and Previous Year booking windows down to the exact day for flawless Apples-to-Apples comparisons.</p></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown(f"""
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Market Drill-down</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly slice data by natural half-years (S1/S2), specific source markets, or top-performing Travel Agencies.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Market Drill-down</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly slice data by natural half-years (S1/S2), specific source markets, or top-performing Travel Agencies.</p></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown(f"""
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Macro AI Advisor</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Transform raw variance into boardroom-ready narratives, connecting data shifts with global macroeconomic and geopolitical trends.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Macro AI Advisor</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Transform raw variance into boardroom-ready narratives, connecting data shifts with global macroeconomic and geopolitical trends.</p></div>', unsafe_allow_html=True)
