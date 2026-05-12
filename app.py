@@ -4,7 +4,7 @@ import numpy as np
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg') 
+matplotlib.use('Agg') # 强制离线渲染
 import os
 
 # --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
@@ -96,7 +96,7 @@ def load_and_clean(file):
     return data
 
 # ==========================================
-# 🌟 核心提取器
+# 🌟 核心提取器 (拦截一切奇葩格式)
 # ==========================================
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
@@ -158,7 +158,7 @@ if uploaded_file:
             }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 🌟 模块 C：智能 AI 决策顾问 (完全填空模式)
+    # 🌟 模块 C：智能 AI 决策顾问 (半开放模板)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
@@ -183,22 +183,23 @@ if uploaded_file:
             if isinstance(m["content"], pd.DataFrame): 
                 st.dataframe(m["content"], use_container_width=True, hide_index=True)
             elif isinstance(m["content"], str) and m["content"].endswith(".png"):
-                # 如果它还是执迷不悟画了图，显示个警告而不是直接崩
                 st.warning("⚠️ AI generated a plot instead of a data table. Please check the code.")
             else: 
                 st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Analyze consumption BV for NJ XXY from Jan to May 2026."):
+    if prompt := st.chat_input("E.g., Breakdown China Mainland performance from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
-        # 🌟 绝杀：连模板都不让它选了，直接把完整代码强塞在用户的提问里！
+        # 🌟 终极进化：允许智能选列，彻底封杀文字总结
         hacked_prompt = f"""
         User Question: {prompt}
         
         [SYSTEM OVERRIDE - LEVEL 10 RESTRICTION]: 
-        DO NOT GENERATE ANY PLOTS! DO NOT IMPORT MATPLOTLIB!
-        YOU MUST COPY AND EXECUTE THIS EXACT CODE STRUCTURE, JUST REPLACE 'TARGET_AGENCY_NAME' WITH THE ENTITY IN THE USER'S QUESTION:
+        1. DO NOT GENERATE PLOTS.
+        2. NEVER CALCULATE VARIANCES OR RETURN A STRING! YOU MUST OUTPUT A DATAFRAME.
+        
+        YOU MUST COPY AND EXECUTE THIS EXACT CODE STRUCTURE:
 
         ```python
         import pandas as pd
@@ -206,14 +207,16 @@ if uploaded_file:
 
         df_filtered = dfs[0].copy()
         
-        # 1. ALWAYS use str.contains for TA_Group. NEVER use == !
-        df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('TARGET_AGENCY_NAME', case=False, na=False)]
+        # 1. Target Filtering
+        # CRITICAL: CHOOSE THE CORRECT COLUMN from: 'Market', 'TA_Group', 'Resort', or 'Dest_Type'.
+        # E.g. If user asks 'China Mainland', use 'Market'. If user asks 'NJ XXY', use 'TA_Group'.
+        df_filtered = df_filtered[df_filtered['CORRECT_COLUMN_NAME_HERE'].str.contains('TARGET_ENTITY_HERE', case=False, na=False)]
         
-        # 2. Filter Time
+        # 2. Filter Time (ADAPT THESE LINES BASED ON THE USER QUESTION)
         df_filtered = df_filtered[df_filtered['Year'] == 2026]
         df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
 
-        # 3. Group and Math
+        # 3. Group and Math (ALWAYS include Month and Dest_Type breakdown)
         df_grouped = df_filtered.groupby(['Month_Num', 'Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
         df_grouped['ADR'] = np.where(df_grouped['HN'] > 0, df_grouped['BV'] / df_grouped['HN'], 0)
         
@@ -221,23 +224,25 @@ if uploaded_file:
         result = df_grouped.sort_values(['Month_Num', 'Dest_Type']).drop(columns=['Month_Num'])
         ```
         
-        CRITICAL: ASSIGN THE DATAFRAME TO `result`. DO NOT CREATE A DICTIONARY.
+        CRITICAL: ASSIGN THE FINAL DATAFRAME DIRECTLY TO THE VARIABLE `result`. 
+        DO NOT assign `result = {{'type': 'string', 'value': ...}}`.
         """
 
         with st.chat_message("assistant"):
-            with st.spinner("Executing forced code injection template..."):
+            with st.spinner("Decoding entities and generating analysis table..."):
                 try:
                     response = agent.chat(hacked_prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): Extracted successfully using `str.contains`, but 0 records found for the target in that timeframe.")
+                            st.warning("⚠️ 查无数据 (Empty Table): AI filtered correctly, but 0 records found for the target in that timeframe.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
                         st.session_state.messages.append({"role": "assistant", "content": safe_df})
                     else:
+                        # 如果它还是没忍住输出了文字，也打印出来
                         res_str = str(response)
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
