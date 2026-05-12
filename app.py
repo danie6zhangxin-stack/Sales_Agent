@@ -56,7 +56,7 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 核心数据清洗引擎 (🌟 恢复销售时间线) ---
+# --- 3. 核心数据清洗引擎 ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
@@ -65,8 +65,8 @@ def load_and_clean(file):
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
-        'SALES_CALENDAR[Sales_date]': 'Sales_Date',             # 🌟 恢复 Sales_Date
-        'SALES_CALENDAR[Sales_Month_name]': 'Sales_Month',      # 🌟 恢复 Sales_Month
+        'SALES_CALENDAR[Sales_date]': 'Sales_Date',
+        'SALES_CALENDAR[Sales_Month_name]': 'Sales_Month',
         'REF_SALES_MARKET[Market]': 'Market',
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
@@ -80,7 +80,6 @@ def load_and_clean(file):
         if col in data.columns:
             data[col] = data[col].astype(str).str.strip()
             
-    # 格式化日期列，方便 AI 调用
     if 'Sales_Date' in data.columns:
         data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     
@@ -117,8 +116,6 @@ with st.sidebar:
 
 if uploaded_file:
     df = load_and_clean(uploaded_file)
-    
-    # 🌟 动态抓取白名单，告诉 AI 哪些才是真正的 Resort
     valid_resorts = [str(r) for r in df['Resort'].unique() if str(r).lower() != 'nan']
     valid_resorts_str = ", ".join(valid_resorts)
     
@@ -161,43 +158,51 @@ if uploaded_file:
             }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 🌟 模块 C：智能 AI 决策顾问
+    # 🌟 模块 C：智能 AI 决策顾问 (防乱写变量版)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
-    st.caption("💡 *Pro tip: Specify whether you want to analyze by 'Sales Date' or 'Consumption Month'.*")
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
     history_context = ""
-    if len(st.session_state.messages) > 0:
-        history_context = "\n\n=== RECENT CONVERSATION ===\n"
-        for msg in st.session_state.messages[-4:]:
-            if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
-                history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
+    for msg in st.session_state.messages[-4:]:
+        if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
+            history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极架构指令：赋予 AI 真实业务常识
+    # 🌟 终极代码模板指令：强制要求顺序过滤，严禁换变量！
     custom_instr = f"""
-    You are an expert Data Analyst writing Python code for PandasAI.
-    Output VALID PYTHON CODE ONLY inside ```python and ```.
-    Assign final result to `result` as a pure `pd.DataFrame`.
-
-    === 1. ENTITY RECOGNITION (CRITICAL) ===
-    - VALID RESORTS: The ONLY valid resorts in this dataset are: [{valid_resorts_str}].
-    - AGENCIES/TARGETS: If the user asks about a target (e.g., "NJ XXY") and it is NOT in the valid resorts list, it is a Travel Agency (`TA_Group`). 
-      You MUST filter using `TA_Group` (e.g., `dfs[0]['TA_Group'].str.contains('NJ XXY', case=False, na=False)`). NEVER search for agencies in the Resort column!
-
-    === 2. DUAL-TIMELINE ROUTING (CRITICAL) ===
-    There are TWO distinct time dimensions in `dfs[0]`. Choose based on user intent:
-    - CONSUMPTION (Default / Stay / Performance): Uses `Year` (e.g., 2026) and `Month_Num` (1-12). If the user just says "Jan to May", assume Consumption. Filter: `dfs[0]['Month_Num'].between(1, 5)`.
-    - SALES (Booked / Sold / Sales Date): Uses `Sales_Date` (datetime) and `Sales_Month` (string). ONLY use this if the user explicitly mentions "sales", "sold", or "sales date". Filter example: `dfs[0]['Sales_Date'].dt.month.between(1, 5)`.
-
-    === 3. OUTPUT FORMAT ===
-    Group the filtered data appropriately, sum `BV` and `HN`, calculate `ADR` = `BV` / `HN`.
-    Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
+    You are a strictly programmatic code generator. Output VALID PYTHON CODE ONLY inside ```python and ```.
     
-    === MEMORY ===
+    === CRITICAL CODE STRUCTURE (MUST FOLLOW EXACTLY) ===
+    You MUST chain your filters sequentially using ONE variable named `df_filtered`. NEVER use `.apply()` for row-wise text searching.
+    
+    Example Structure to follow:
+    ```python
+    # 1. Start with base dataframe
+    df_filtered = dfs[0].copy()
+    
+    # 2. Filter Time (Consumption by default)
+    df_filtered = df_filtered[df_filtered['Year'] == 2026]
+    df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
+    
+    # 3. Filter Target (Agency names go in TA_Group)
+    df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('TARGET_NAME', case=False, na=False)]
+    
+    # 4. Group and Calculate
+    df_grouped = df_filtered.groupby(['Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
+    df_grouped['ADR'] = df_grouped['BV'] / df_grouped['HN']
+    
+    # 5. Output
+    result = df_grouped
+    ```
+    
+    === RULES ===
+    1. Do NOT assign dictionaries like `result = {{'type': 'dataframe', 'value': ...}}`. Directly assign the dataframe: `result = df_grouped`.
+    2. Agencies MUST be searched in `TA_Group` column using `str.contains()`.
+    
+    MEMORY:
     {history_context}
     """
 
@@ -214,15 +219,25 @@ if uploaded_file:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
+        # 在发送给模型前，再次通过外挂重申
+        hacked_prompt = f"""
+        {prompt}
+        
+        [SYSTEM WARNING]:
+        1. Apply ALL filters to a single dataframe variable sequentially. Do NOT create `nj_xxy_data` and then filter `dfs[0]`.
+        2. DO NOT use `apply(lambda row: ...)`. Use `TA_Group`.
+        3. `result` MUST be assigned a DataFrame, not a dict.
+        """
+
         with st.chat_message("assistant"):
-            with st.spinner("Decoding entities and routing time dimensions..."):
+            with st.spinner("Executing strictly structured sequential filtering..."):
                 try:
-                    response = agent.chat(prompt)
+                    response = agent.chat(hacked_prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): AI filtered correctly, but 0 records matched.")
+                            st.warning("⚠️ 查无数据 (Empty Table): Executed correctly using TA_Group and Month_Num, but 0 records found.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
@@ -232,10 +247,9 @@ if uploaded_file:
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
                     
-                    # 查看底牌
                     code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
                     if code_executed:
-                        with st.expander("🛠️ View AI Generated Code (For Debugging)"):
+                        with st.expander("🛠️ View AI Generated Code"):
                             st.code(code_executed, language='python')
                             
                 except Exception as e:
