@@ -204,14 +204,27 @@ if uploaded_file:
             st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing strict data filtering and deep-dive analysis..."):
+            with st.spinner("Applying filters and executing multi-dimensional deep dive..."):
                 try:
                     response = agent.chat(prompt)
-                    if not isinstance(response, str):
-                        response = str(response)
                     
-                    st.markdown(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    # ==========================================
+                    # 🌟 核心修复：智能排版拦截器
+                    # ==========================================
+                    if isinstance(response, pd.DataFrame):
+                        # 1. 如果 AI 直接返回了一个数据表对象，用原生的漂亮表格渲染！
+                        st.markdown("**📊 Data Table Breakdown:**")
+                        st.dataframe(response, use_container_width=True)
+                        # 保存到历史记录（转成 markdown 文本保存）
+                        st.session_state.messages.append({"role": "assistant", "content": response.to_markdown()})
+                    
+                    else:
+                        # 2. 如果返回的是文字/Markdown，正常渲染
+                        if not isinstance(response, str):
+                            response = str(response)
+                        st.markdown(response)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+
                 except Exception as e:
                     st.error(f"Analysis Error: {e}")
 
