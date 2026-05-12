@@ -19,12 +19,10 @@ CSS_STYLE = """
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
     h1, h2, h3, h4 { font-family: 'Playfair Display', serif !important; color: var(--cm-blue); }
     
-    /* 指标卡片与表格高定美化 */
     div[data-testid="stMetric"] { background-color: white; border-radius: 6px; padding: 15px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 28px; }
     .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); background-color: white; }
     
-    /* 聊天气泡高定重塑 */
     div[data-testid="stChatMessage"] { background-color: transparent !important; border: none !important; border-bottom: 1px solid #EAECEF !important; padding: 1.5rem 0.5rem !important; margin-bottom: 0 !important; }
     div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
     div[data-testid="stChatMessageAvatarUser"] { background-color: var(--cm-blue) !important; color: white !important;}
@@ -52,7 +50,6 @@ if uploaded_file:
     df = pd.read_csv(uploaded_file, low_memory=False)
     df.columns = [col.strip() for col in df.columns]
 
-    # 规范化列名
     col_mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
@@ -65,7 +62,7 @@ if uploaded_file:
     }
     df.rename(columns=col_mapping, inplace=True, errors='ignore')
 
-    # 强制清理隐藏空格，彻底解决精确匹配失败的元凶
+    # 强制清理隐藏空格
     for c in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
@@ -76,12 +73,11 @@ if uploaded_file:
             df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
     df['ADR'] = (df['BV'] / df['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
 
-    # 确保年份格式为整数
     if 'Year' in df.columns:
         df['Year'] = pd.to_numeric(df['Year'], errors='coerce').fillna(0).astype(int)
 
     # ==========================================
-    # 🌟 模块 A：精准宏观 Dashboard (原生 Python 计算)
+    # 🌟 模块 A & B：精准宏观 Dashboard 
     # ==========================================
     with st.sidebar:
         st.markdown("### ⚙️ Dashboard Filters")
@@ -89,7 +85,6 @@ if uploaded_file:
         selected_year = st.selectbox("Select Consumption Year", available_years) if available_years else 2026
 
     st.markdown(f"### 📈 Executive Summary ({selected_year})")
-    
     df_cy = df[df['Year'] == selected_year]
     df_py = df[df['Year'] == selected_year - 1]
 
@@ -103,11 +98,7 @@ if uploaded_file:
     c2.metric(f"Total HN ({selected_year})", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}% vs {selected_year-1}" if py_hn>0 else None)
     c3.metric(f"Avg ADR ({selected_year})", f"€ {cy_adr:,.2f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}% vs {selected_year-1}" if py_adr>0 else None)
 
-    # ==========================================
-    # 🌟 模块 B：China & HK by Destination Type 透视表
-    # ==========================================
     st.markdown(f"#### 📊 China & HK Performance by Destination Type ({selected_year} vs {selected_year-1})")
-    
     ch_hk_mask_cy = df_cy['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
     ch_hk_mask_py = df_py['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
     
@@ -115,10 +106,8 @@ if uploaded_file:
     py_target = df_py[ch_hk_mask_py].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
     
     dashboard_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{selected_year}', f'_{selected_year-1}')).fillna(0)
-    
     dashboard_df[f'ADR_{selected_year}'] = np.where(dashboard_df[f'HN_{selected_year}'] > 0, dashboard_df[f'BV_{selected_year}'] / dashboard_df[f'HN_{selected_year}'], 0)
     dashboard_df[f'ADR_{selected_year-1}'] = np.where(dashboard_df[f'HN_{selected_year-1}'] > 0, dashboard_df[f'BV_{selected_year-1}'] / dashboard_df[f'HN_{selected_year-1}'], 0)
-    
     dashboard_df['BV_YoY(%)'] = np.where(dashboard_df[f'BV_{selected_year-1}'] > 0, (dashboard_df[f'BV_{selected_year}'] - dashboard_df[f'BV_{selected_year-1}']) / dashboard_df[f'BV_{selected_year-1}'] * 100, 0)
     
     display_cols = ['Market', 'Dest_Type', f'BV_{selected_year}', f'BV_{selected_year-1}', 'BV_YoY(%)', f'HN_{selected_year}', f'ADR_{selected_year}']
@@ -132,21 +121,37 @@ if uploaded_file:
         st.info("No data found for China/Hong Kong in the selected year.")
 
     # ==========================================
-    # 🌟 模块 C：具备“记忆”的 AI 战略顾问 (严格规则版)
+    # 🌟 模块 C：具备“双模式”的智能 AI 顾问
     # ==========================================
     st.divider()
-    st.markdown("### 🤖 Continuous Strategy Advisor")
-    st.caption("The AI remembers your chat history. You can ask follow-up questions.")
+    st.markdown("### 🤖 Strategy Advisor")
+    st.caption("Ask for a performance Deep Dive, or ask conversational questions like 'What is in the TA Group column?'")
     
+    # 🌟 核心修复：引入“模式切换”，防止 AI 死板回答
     custom_instr = """
-    You are a Senior McKinsey Consultant. Follow these STRICT rules:
-    
-    1. **CONVERSATIONAL MEMORY**: You MUST remember previous context. If previously asked about "NJ XXY", apply it to follow-ups.
-    2. **MANDATORY DEST_TYPE BREAKDOWN**: Whenever analyzing sales/BV, you MUST provide a breakdown by `Dest_Type` (Destination type Asia).
-    3. **YoY VARIANCE**: Always compare metrics with the EXACT SAME period in the previous year (Year - 1) and calculate Variance %.
-    4. **EXACT MATCH FILTERING (CRITICAL)**: If a user specifies a target (e.g. "NJ XXY"), you MUST use EXACT EQUALITY to filter: `df = df[df['TA_Group'] == 'NJ XXY']`. DO NOT use partial matching like `str.contains()`!
-    5. **CRITICAL DATATYPE RULE**: NEVER return a raw float or integer. ALWAYS cast your final numerical results to a String (e.g., `result = str(val)`) to prevent framework crashes.
-    6. **FORMATTING**: Output pure Markdown tables or return a clean Pandas DataFrame. NEVER generate matplotlib code. Include 'import numpy as np' and 'import pandas as pd'.
+    You are a Senior Business Analyst for ClubMed. You have TWO operation modes depending on the user's prompt:
+
+    === MODE 1: PERFORMANCE DEEP DIVE ===
+    Trigger this mode when the user asks to analyze sales, BV, performance, or asks for a "deep dive".
+    1. EXPLICIT YEAR FILTER (CRITICAL): If the user specifies a year (e.g., "2026"), you MUST explicitly filter the dataframe by that Year first (`df = df[df['Year'] == 2026]`). Do NOT mix 2025 and 2026 data unless specifically calculating YoY!
+    2. EXACT MATCH FILTER: If requested a specific target (e.g. "NJ XXY"), use EXACT MATCH: `df = df[df['TA_Group'] == 'NJ XXY']`.
+    3. MANDATORY FORMAT: You MUST return a MARKDOWN TEXT REPORT. DO NOT just return a raw Pandas DataFrame. 
+       Your Markdown report MUST include:
+       - Executive Summary (Total BV, HN, ADR for the specific period).
+       - Breakdown by `Dest_Type` (Destination type Asia) using a Markdown table.
+       - Breakdown by `Resort` using a Markdown table.
+       - YoY Variance % (Compare current vs exact same period in Year-1).
+
+    === MODE 2: Q&A AND DEBUGGING ===
+    Trigger this mode when the user asks general questions, asks what filters were applied, or asks to explain logic (e.g., "Let me know what you filtered", "Why did you do that?").
+    1. Answer directly in conversational plain text.
+    2. Do NOT generate the long performance report.
+    3. Note: The column 'group_TA_cml' has been renamed to `TA_Group` in the dataframe. If the user asks about it, explain the exact logic or list the unique values.
+
+    === GENERAL RULES ===
+    - CONVERSATIONAL MEMORY: Remember previous context. If previously asked about "NJ XXY", apply it to follow-ups.
+    - CRITICAL DATATYPE RULE: ALWAYS cast your final numerical results to a String (e.g., `result = str(val)`) to prevent framework crashes.
+    - ALWAYS include 'import numpy as np' and 'import pandas as pd'. NEVER generate matplotlib charts.
     """
 
     if "agent" not in st.session_state:
@@ -155,7 +160,6 @@ if uploaded_file:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 智能渲染历史对话
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame):
@@ -169,13 +173,13 @@ if uploaded_file:
             st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Applying exact filters and executing deep dive..."):
+            with st.spinner("Analyzing your request..."):
                 try:
                     response = st.session_state.agent.chat(prompt)
                     
-                    # 🌟 智能排版拦截器：DataFrame 优美展示，文字正常展示
                     if isinstance(response, pd.DataFrame):
-                        st.markdown("**📊 Data Table Breakdown:**")
+                        # 如果 AI 还是顽固地返回了表格，我们完美渲染它
+                        st.markdown("**📊 Raw Data Table:**")
                         st.dataframe(response, use_container_width=True)
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     else:
