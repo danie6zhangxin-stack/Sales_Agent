@@ -142,12 +142,13 @@ if uploaded_file:
                                         (dash_df[f'BV_{sel_year}'] - dash_df[f'BV_{sel_year-1}']) / dash_df[f'BV_{sel_year-1}'] * 100, 0)
             
             display_cols = ['Market', 'Dest_Type', f'BV_{sel_year}', f'BV_{sel_year-1}', 'YoY(%)']
+            # 🌟 修复点：year 笔误修正为 sel_year
             st.dataframe(dash_df[display_cols].style.format({
-                f'BV_{sel_year}': '€ {:,.0f}', f'BV_{year-1}': '€ {:,.0f}', 'YoY(%)': '{:+.1f}%'
+                f'BV_{sel_year}': '€ {:,.0f}', f'BV_{sel_year-1}': '€ {:,.0f}', 'YoY(%)': '{:+.1f}%'
             }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 🌟 模块 C：智能 AI 决策顾问 (优化版)
+    # 🌟 模块 C：智能 AI 决策顾问
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
@@ -163,7 +164,6 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 更新：去掉硬性 str.upper()，采用更灵活的大小写兼容匹配
     custom_instr = f"""
     You are a Senior Data Analyst for ClubMed. Follow these rules:
 
