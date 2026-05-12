@@ -91,10 +91,13 @@ def load_and_clean(file):
     return data
 
 # ==========================================
-# 🌟 核心提取器 (防崩溃必备)
+# 🌟 核心提取器 (字典/DataFrame 通吃)
 # ==========================================
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
+    # 针对 PandasAI 瞎包字典的情况 ( {'type':'dataframe', 'value': ...} )
+    if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame):
+        return resp['value']
     if hasattr(resp, 'to_pandas'): return resp.to_pandas()
     if hasattr(resp, 'dataframe'): return resp.dataframe
     if hasattr(resp, '_df'): return resp._df
@@ -164,25 +167,23 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极防空表指令：强制使用精准包含（str.contains）
+    # 🌟 终极防空表指令：明确区分 TA_Group 和 Resort
     custom_instr = f"""
     You are a Data Analyst writing Python code for PandasAI.
 
     === CRITICAL EXECUTION RULES ===
     1. Output VALID PYTHON CODE ONLY inside ```python and ```.
-    2. The dataframe is `dfs[0]`. Assign final result to `result`.
+    2. The dataframe is `dfs[0]`. Assign final result to `result`. Do NOT assign a dictionary, assign the raw pd.DataFrame to `result` directly.
 
     === BULLETPROOF FILTERING RULES ===
-    1. YEAR: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`
-    2. TARGET MATCH (CRUCIAL): The agency name might have suffixes or trailing spaces. 
-       You MUST use `.str.contains()` with the FULL EXACT phrase the user asked for.
-       CORRECT: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
-       WRONG: `== 'NJ XXY'` (Will result in Empty Table due to suffixes)
-       WRONG: `.str.contains('NJ')` (Will mistakenly include other agencies like NJI CIT)
+    1. YEAR: ALWAYS filter `df_filtered = dfs[0][dfs[0]['Year'] == 2026]` first.
+    2. COLUMN SELECTION (CRITICAL):
+       - If the user asks about an Agency or Target like "NJ XXY", you MUST search in the `TA_Group` column! NOT the Resort column!
+       - CORRECT CODE: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
     3. MONTHS: Use `Month_Num` (1-12). For "Jan to May", use `df_filtered[df_filtered['Month_Num'].between(1, 5)]`.
 
     === OUTPUT FORMAT ===
-    1. Group `df_filtered` by `Month` AND `Dest_Type` (if asked for breakdown).
+    1. Group `df_filtered` by `Month` AND `Dest_Type`.
     2. Sum `BV` and `HN`. Calculate `ADR` = `BV` / `HN`.
     3. Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
     
@@ -204,7 +205,7 @@ if uploaded_file:
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing intelligent fuzzy-matching code..."):
+            with st.spinner("Executing corrected agency filtering code..."):
                 try:
                     response = agent.chat(prompt)
                     safe_df = extract_dataframe(response)
@@ -221,7 +222,7 @@ if uploaded_file:
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
                     
-                    # 🌟 全新透视镜机制：让用户查看底层运行的代码
+                    # 🌟 保留透视镜，以后任何错误直接看底牌
                     code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
                     if code_executed:
                         with st.expander("🛠️ View AI Generated Code (For Debugging)"):
