@@ -76,9 +76,9 @@ with st.sidebar:
     st.markdown("<h2 style='color:#A64B35; border-bottom: 1px solid #ddd; padding-bottom: 10px;'>ClubMed Ψ <br><span style='font-size:16px; font-family:Inter; color:#1D263B;'>Executive Dashboard</span></h2>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload Data (CSV)", type=['csv'])
     st.divider()
-    st.caption("Strategic Decision Platform | Featuring BV, HN, ADR analysis & Deep Dive reporting.")
+    st.caption("Strategic Decision Platform | Deep Dive Reporting.")
 
-# --- 4. 核心数据引擎 ---
+# --- 4. 核心数据引擎 (加强防呆机制) ---
 if uploaded_file:
     df = pd.read_csv(uploaded_file, low_memory=False)
     df.columns = [col.strip() for col in df.columns]
@@ -95,13 +95,19 @@ if uploaded_file:
     }
     df.rename(columns=col_mapping, inplace=True, errors='ignore')
 
+    # 🌟 修复关键：强制切除所有文本列的前后隐藏空格，防止 AI 过滤失败！
+    for c in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+
+    # 格式化数字
     for c in ['BV', 'HN']:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
     
     df['ADR'] = (df['BV'] / df['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
 
-    # --- 模块 A：全局指标看板 ---
+    # --- 模块 A & B：全局看板 ---
     st.markdown("### 📈 Executive Summary")
     total_bv = df['BV'].sum()
     total_hn = df['HN'].sum()
@@ -112,7 +118,6 @@ if uploaded_file:
     c2.metric("Total HN (Nights)", f"{total_hn:,.0f}")
     c3.metric("Average ADR (EUR)", f"€ {avg_adr:,.2f}")
 
-    # --- 模块 B：高级透视表 ---
     st.markdown("### 📊 Market Breakdown (Pivot)")
     pivot_df = pd.pivot_table(df, values=['BV', 'HN', 'ADR'], index=['Market'], aggfunc={'BV': 'sum', 'HN': 'sum', 'ADR': 'mean'})
     styled_pivot = pivot_df.style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}', 'ADR': '€ {:,.2f}'})
@@ -136,13 +141,11 @@ if uploaded_file:
             resort_data = df.groupby('Resort')['BV'].sum().sort_values(ascending=False).head(5)
             sns.barplot(x=resort_data.index, y=resort_data.values, color='#A64B35', ax=ax)
             ax.set_title("Top 5 Resorts by BV", family='Playfair Display', color='#1D263B', size=16)
-            ax.set_ylabel("BV (EUR)")
         
         elif chart_to_draw == 'line':
             trend_data = df.groupby('Month')['BV'].sum()
             trend_data.plot(kind='line', marker='o', color='#1D263B', linewidth=2.5, ax=ax)
             ax.set_title("BV Consumption Monthly Trend", family='Playfair Display', color='#1D263B', size=16)
-            ax.set_ylabel("BV (EUR)")
             ax.grid(axis='y', linestyle='--', alpha=0.5)
             
         elif chart_to_draw == 'pie':
@@ -158,27 +161,32 @@ if uploaded_file:
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive)")
     
+    # 🌟 强化指令：强制先过滤，并强制按 Dest_Type 拆解
     custom_instr = """
-    You are a Senior McKinsey Consultant. For EVERY query about sales or BV performance, you MUST provide a response structured exactly as follows:
+    You are a Senior McKinsey Consultant. Follow these STRICT rules:
 
-    1. **Executive Summary**: Total BV, HN, and ADR for the requested period/segment. 
-    2. **Composition Breakdown**:
-       - Markdown table showing the BV contribution By Resort.
-       - Markdown table showing the breakdown By Dest_Type (Destination Type).
-    3. **YoY Variance Analysis**:
-       - Automatically fetch data for the SAME EXACT months in the previous year (Year - 1).
-       - Show the Variance Amount and Variance %.
+    1. **MANDATORY PRE-FILTERING (CRITICAL)**:
+       - If the user asks for a specific Market, Resort, or TA_Group (like 'NJ XXY'), your VERY FIRST step in Python MUST be to filter the dataframe (e.g., `df = df[df['TA_Group'].str.contains('NJ XXY', na=False, case=False)]`).
+       - NEVER sum up the entire dataframe unless requested!
 
-    CRITICAL EXECUTION RULES (MUST OBEY):
-    1. **MANDATORY PRE-FILTERING**: BEFORE performing ANY calculations, you MUST filter the dataframe based on the user's specific target. If the user asks for "NJ XXY", your python code MUST explicitly filter `df = df[df['TA_Group'] == 'NJ XXY']` first! NEVER calculate the total company data if a specific TA Group, Resort, or Market is requested.
-    2. **STRICT MARKDOWN TABLES**: When generating tables, you MUST use proper Markdown syntax with line breaks. 
-       Example:
-       | Metric | Value |
-       |---|---|
-       | BV | 100 |
-       DO NOT output flattened or unformatted text.
-    3. **IMPORTS & MATH**: ALWAYS include 'import numpy as np' and 'import pandas as pd'. 
-    4. **MONTH MATCHING**: If user asks for 'Jan to May', sum the values for exact strings: 'January', 'February', 'March', 'April', 'May'.
+    2. **RESPONSE STRUCTURE**:
+       You MUST output the final response in pure Markdown format with this exact structure:
+
+       **1. Executive Summary**:
+       - State the target (e.g., "TA Group: NJ XXY").
+       - Current Period Total BV, HN, ADR.
+       - Previous Year (Same Months) Total BV, HN, ADR.
+
+       **2. Performance by Destination Type (Dest_Type)**:
+       - You MUST group the filtered data by `Dest_Type` (Destination type Asia).
+       - Provide a Markdown table: | Dest_Type | Current BV | Previous Year BV | YoY Variance % |
+
+       **3. Performance by Resort**:
+       - Provide a Markdown table: | Resort | Current BV | Previous Year BV | YoY Variance % |
+
+    3. **MATH & DATES RULES**:
+       - Always include 'import numpy as np' and 'import pandas as pd'.
+       - For 'Jan to May', use ['January', 'February', 'March', 'April', 'May'].
     """
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
@@ -190,13 +198,13 @@ if uploaded_file:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Provide a deep dive analysis for NJ XXY. Jan to May 2026 vs last year."):
+    if prompt := st.chat_input("E.g., Analyze NJ XXY from Jan to May 2026 vs last year."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Applying filters and executing multi-dimensional deep dive..."):
+            with st.spinner("Executing strict data filtering and deep-dive analysis..."):
                 try:
                     response = agent.chat(prompt)
                     if not isinstance(response, str):
