@@ -289,4 +289,48 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
 else:
-    st.info("Upload SalesData.csv to start.")
+    # 🌟 1. 奢华欢迎横幅 (Hero Banner)
+    welcome_html = """
+    <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #1D263B 0%, #2A3650 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
+        <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
+        <h1 style="font-family: 'Playfair Display', serif; font-size: 3.5rem; color: #FFFFFF; margin-bottom: 1rem; letter-spacing: 1px;">Executive Strategy Hub</h1>
+        <p style="font-family: 'Inter', sans-serif; font-size: 1.15rem; color: #A4B6B0; max-width: 650px; margin: 0 auto; line-height: 1.6; font-weight: 300;">
+            Elevate your revenue management. Please upload your Sales Data via the sidebar to unlock enterprise-grade pacing analytics, real-time market drill-downs, and AI-driven macroeconomic insights.
+        </p>
+    </div>
+    """
+    st.markdown(welcome_html, unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # 🌟 2. 核心功能特性展示卡片 (Feature Cards)
+    c1, c2, c3 = st.columns(3)
+    
+    card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
+    
+    with c1:
+        st.markdown(f"""
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Precision Pacing</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Align Current Year and Previous Year booking windows down to the exact day for flawless Apples-to-Apples comparisons.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c2:
+        st.markdown(f"""
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Market Drill-down</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly slice data by natural half-years (S1/S2), specific source markets, or top-performing Travel Agencies.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c3:
+        st.markdown(f"""
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Macro AI Advisor</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Transform raw variance into boardroom-ready narratives, connecting data shifts with global macroeconomic and geopolitical trends.</p>
+        </div>
+        """, unsafe_allow_html=True)
