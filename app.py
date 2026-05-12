@@ -37,7 +37,7 @@ st.markdown(CSS_STYLE, unsafe_allow_html=True)
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
-    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 请填写真实Key
+    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 记得填写真实Key
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
@@ -65,7 +65,7 @@ if uploaded_file:
     }
     df.rename(columns=col_mapping, inplace=True, errors='ignore')
 
-    # 强制清理隐藏空格，解决过滤失败的元凶
+    # 强制清理隐藏空格，彻底解决精确匹配失败的元凶
     for c in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
@@ -81,20 +81,18 @@ if uploaded_file:
         df['Year'] = pd.to_numeric(df['Year'], errors='coerce').fillna(0).astype(int)
 
     # ==========================================
-    # 🌟 模块 A：100% 精准的宏观 Dashboard (原生 Python 计算，拒绝 AI 幻觉)
+    # 🌟 模块 A：精准宏观 Dashboard (原生 Python 计算)
     # ==========================================
     with st.sidebar:
         st.markdown("### ⚙️ Dashboard Filters")
         available_years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
-        selected_year = st.selectbox("Select Consumption Year", available_years)
+        selected_year = st.selectbox("Select Consumption Year", available_years) if available_years else 2026
 
     st.markdown(f"### 📈 Executive Summary ({selected_year})")
     
-    # 过滤当前年份与上一年的数据
     df_cy = df[df['Year'] == selected_year]
     df_py = df[df['Year'] == selected_year - 1]
 
-    # 顶部三大宏观指标
     cy_bv, cy_hn = df_cy['BV'].sum(), df_cy['HN'].sum()
     py_bv, py_hn = df_py['BV'].sum(), df_py['HN'].sum()
     cy_adr = cy_bv / cy_hn if cy_hn > 0 else 0
@@ -110,24 +108,19 @@ if uploaded_file:
     # ==========================================
     st.markdown(f"#### 📊 China & HK Performance by Destination Type ({selected_year} vs {selected_year-1})")
     
-    # 锁定中港市场
     ch_hk_mask_cy = df_cy['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
     ch_hk_mask_py = df_py['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
     
     cy_target = df_cy[ch_hk_mask_cy].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
     py_target = df_py[ch_hk_mask_py].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
     
-    # 合并两年数据计算 YoY
     dashboard_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{selected_year}', f'_{selected_year-1}')).fillna(0)
     
-    # 计算 ADR
     dashboard_df[f'ADR_{selected_year}'] = np.where(dashboard_df[f'HN_{selected_year}'] > 0, dashboard_df[f'BV_{selected_year}'] / dashboard_df[f'HN_{selected_year}'], 0)
     dashboard_df[f'ADR_{selected_year-1}'] = np.where(dashboard_df[f'HN_{selected_year-1}'] > 0, dashboard_df[f'BV_{selected_year-1}'] / dashboard_df[f'HN_{selected_year-1}'], 0)
     
-    # 计算 YoY %
     dashboard_df['BV_YoY(%)'] = np.where(dashboard_df[f'BV_{selected_year-1}'] > 0, (dashboard_df[f'BV_{selected_year}'] - dashboard_df[f'BV_{selected_year-1}']) / dashboard_df[f'BV_{selected_year-1}'] * 100, 0)
     
-    # 调整列顺序与格式渲染
     display_cols = ['Market', 'Dest_Type', f'BV_{selected_year}', f'BV_{selected_year-1}', 'BV_YoY(%)', f'HN_{selected_year}', f'ADR_{selected_year}']
     if not dashboard_df.empty:
         styled_dash = dashboard_df[display_cols].style.format({
@@ -139,31 +132,30 @@ if uploaded_file:
         st.info("No data found for China/Hong Kong in the selected year.")
 
     # ==========================================
-    # 🌟 模块 C：具备“记忆功能”的 AI 战略顾问
+    # 🌟 模块 C：具备“记忆”的 AI 战略顾问 (严格规则版)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Continuous Strategy Advisor")
-    st.caption("The AI remembers your chat history. You can ask follow-up questions (e.g., 'What about May?' or 'Show me the HN instead').")
+    st.caption("The AI remembers your chat history. You can ask follow-up questions.")
     
     custom_instr = """
     You are a Senior McKinsey Consultant. Follow these STRICT rules:
     
-    1. **CONVERSATIONAL MEMORY**: You MUST remember the context of previous questions. If the user previously asked about "NJ XXY" and now asks "What about June?", apply the "NJ XXY" filter to June.
-    2. **MANDATORY DEST_TYPE BREAKDOWN**: Whenever analyzing sales, BV, or Market/TA Group performance, you MUST provide a breakdown by `Dest_Type` (Destination type Asia).
-    3. **YoY VARIANCE**: Always compare metrics with the EXACT SAME period in the previous year and calculate the Variance %.
-    4. **STRICT FILTERING**: If a user specifies a target (e.g. TA Group or Resort), explicitly filter the dataframe first.
-    5. **CRITICAL DATATYPE RULE (PREVENT CRASH)**: NEVER return a raw float or integer as your final result. The final output MUST ALWAYS be a String (Markdown formatted text) or a Pandas DataFrame. If your calculation results in a number, you MUST cast it to a string (e.g., `result = str(calculated_number)`).
-    6. **NO HALLUCINATIONS**: Output only factual data. ALWAYS include 'import numpy as np' and 'import pandas as pd' in your code.
+    1. **CONVERSATIONAL MEMORY**: You MUST remember previous context. If previously asked about "NJ XXY", apply it to follow-ups.
+    2. **MANDATORY DEST_TYPE BREAKDOWN**: Whenever analyzing sales/BV, you MUST provide a breakdown by `Dest_Type` (Destination type Asia).
+    3. **YoY VARIANCE**: Always compare metrics with the EXACT SAME period in the previous year (Year - 1) and calculate Variance %.
+    4. **EXACT MATCH FILTERING (CRITICAL)**: If a user specifies a target (e.g. "NJ XXY"), you MUST use EXACT EQUALITY to filter: `df = df[df['TA_Group'] == 'NJ XXY']`. DO NOT use partial matching like `str.contains()`!
+    5. **CRITICAL DATATYPE RULE**: NEVER return a raw float or integer. ALWAYS cast your final numerical results to a String (e.g., `result = str(val)`) to prevent framework crashes.
+    6. **FORMATTING**: Output pure Markdown tables or return a clean Pandas DataFrame. NEVER generate matplotlib code. Include 'import numpy as np' and 'import pandas as pd'.
     """
 
-    # 初始化具有缓存的 AI 代理 (保证上下文记忆)
     if "agent" not in st.session_state:
         st.session_state.agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": True})
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 渲染历史对话
+    # 智能渲染历史对话
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame):
@@ -171,18 +163,19 @@ if uploaded_file:
             else:
                 st.markdown(m["content"])
 
-    # 接收新对话
     if prompt := st.chat_input("E.g., Deep dive into NJ XXY performance from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing context and executing deep dive..."):
+            with st.spinner("Applying exact filters and executing deep dive..."):
                 try:
                     response = st.session_state.agent.chat(prompt)
                     
+                    # 🌟 智能排版拦截器：DataFrame 优美展示，文字正常展示
                     if isinstance(response, pd.DataFrame):
+                        st.markdown("**📊 Data Table Breakdown:**")
                         st.dataframe(response, use_container_width=True)
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     else:
@@ -195,8 +188,8 @@ if uploaded_file:
 else:
     st.markdown("""
         <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-            <h1 style="font-size: 3rem; margin-bottom: 1rem; color: #1D263B;">Data Meets Strategy.</h1>
-            <p style="color: #6c757d; max-width: 500px; font-size: 1.1rem; line-height: 1.6;">
+            <h1 style="font-size: 3.5rem; margin-bottom: 1rem; color: #1D263B;">Data Meets Strategy.</h1>
+            <p style="color: #6c757d; max-width: 600px; font-size: 1.1rem; line-height: 1.6;">
                 Upload your secure sales dataset. Access McKinsey-standard Dashboards with Year Filters, Market/Dest_Type Pivots, and Conversational AI memory.
             </p>
         </div>
