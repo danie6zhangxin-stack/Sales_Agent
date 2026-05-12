@@ -4,54 +4,68 @@ import numpy as np
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg') 
+matplotlib.use('Agg') # 强制离线渲染
 import os
 
-# --- 1. 高端商业极简风 UI 配置 (McKinsey Standard) ---
+# --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
 st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", page_icon="Ψ")
 
 CSS_STYLE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
-    :root { --cm-blue: #1D263B; --cm-terracotta: #A64B35; --cm-sage: #A4B6B0; --cm-beige: #F8F9FA; }
+    :root { 
+        --cm-blue: #1D263B;      /* 深海蓝 */
+        --cm-terracotta: #A64B35; /* 陶土红 */
+        --cm-beige: #F8F9FA;     
+    }
     
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
     h1, h2, h3, h4 { font-family: 'Playfair Display', serif !important; color: var(--cm-blue); }
     
-    div[data-testid="stMetric"] { background-color: white; border-radius: 6px; padding: 15px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); }
+    /* KPI 指标卡片 */
+    div[data-testid="stMetric"] { 
+        background-color: white; border-radius: 6px; padding: 15px 20px; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); 
+    }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 28px; }
-    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); background-color: white; }
     
-    div[data-testid="stChatMessage"] { background-color: transparent !important; border: none !important; border-bottom: 1px solid #EAECEF !important; padding: 1.5rem 0.5rem !important; margin-bottom: 0 !important; }
+    /* 数据表格美化 */
+    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; background-color: white; }
+    
+    /* 聊天记录 - 极致极简流 */
+    div[data-testid="stChatMessage"] { 
+        background-color: transparent !important; 
+        border: none !important; 
+        border-bottom: 1px solid #EAECEF !important; 
+        padding: 1.5rem 0.5rem !important; 
+        margin-bottom: 0 !important; 
+    }
     div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
-    div[data-testid="stChatMessageAvatarUser"] { background-color: var(--cm-blue) !important; color: white !important;}
-    div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important;}
+    
+    /* 聊天头像 */
+    div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { 
+        background-color: var(--cm-blue) !important; color: white !important;
+    }
     
     .stSidebar { background-color: white !important; border-right: 1px solid #EAECEF; }
 </style>
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
-# --- 2. DeepSeek AI 引擎初始化 ---
+# --- 2. AI 引擎初始化 ---
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
-    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 填入你的真实Key
+    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 生产环境请确保配置了 Secrets
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 侧边栏与文件上传 ---
-with st.sidebar:
-    st.markdown("<h2 style='color:#A64B35; border-bottom: 1px solid #ddd; padding-bottom: 10px;'>ClubMed Ψ <br><span style='font-size:16px; font-family:Inter; color:#1D263B;'>Executive Dashboard</span></h2>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload SalesData.csv", type=['csv'])
-    st.divider()
-
-# --- 4. 核心数据清洗引擎 ---
-if uploaded_file:
-    df = pd.read_csv(uploaded_file, low_memory=False)
-    df.columns = [col.strip() for col in df.columns]
-
-    col_mapping = {
+# --- 3. 核心数据清洗 (硬核去重与格式化) ---
+@st.cache_data
+def load_and_clean(file):
+    data = pd.read_csv(file, low_memory=False)
+    data.columns = [col.strip() for col in data.columns]
+    mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
         'REF_SALES_MARKET[Market]': 'Market',
@@ -61,150 +75,112 @@ if uploaded_file:
         '[BVSTS___final]': 'BV',
         '[HN_final]': 'HN'
     }
-    df.rename(columns=col_mapping, inplace=True, errors='ignore')
+    data.rename(columns=mapping, inplace=True, errors='ignore')
+    
+    # 强制清理隐藏空格（解决 NJ XXY 匹配失败的元凶）
+    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
+        if col in data.columns:
+            data[col] = data[col].astype(str).str.strip()
+    
+    # 财务数据转数字
+    for col in ['BV', 'HN']:
+        if col in data.columns:
+            data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+    
+    data['ADR'] = (data['BV'] / data['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
+    data['Year'] = pd.to_numeric(data['Year'], errors='coerce').fillna(0).astype(int)
+    return data
 
-    # 强制清理隐藏空格
-    for c in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
-        if c in df.columns:
-            df[c] = df[c].astype(str).str.strip()
+# --- 4. 业务逻辑执行 ---
+with st.sidebar:
+    st.markdown("<h2 style='color:#A64B35;'>ClubMed Ψ Hub</h2>", unsafe_allow_html=True)
+    uploaded_file = st.file_uploader("Upload SalesData.csv", type=['csv'])
+    st.divider()
 
-    # 格式化财务数据
-    for c in ['BV', 'HN']:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-    df['ADR'] = (df['BV'] / df['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
-
-    if 'Year' in df.columns:
-        df['Year'] = pd.to_numeric(df['Year'], errors='coerce').fillna(0).astype(int)
-
-    # ==========================================
-    # 🌟 模块 A & B：原生 Python Dashboard (动态多维筛选)
-    # ==========================================
+if uploaded_file:
+    df = load_and_clean(uploaded_file)
+    
+    # 侧边栏动态筛选
     with st.sidebar:
         st.markdown("### ⚙️ Dashboard Filters")
-        # 1. 年份筛选
-        available_years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
-        selected_year = st.selectbox("Select Consumption Year", available_years) if available_years else 2026
+        years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
+        sel_year = st.selectbox("Select Year", years) if years else 2026
         
-        # 2. 🔥 新增：动态市场筛选器 (自动抓取数据表中真实存在的市场名称)
-        available_markets = sorted([str(m) for m in df['Market'].unique() if str(m).strip() != '' and str(m).lower() != 'nan'])
-        # 尝试智能预选包含 China/HK 的选项，如果没有也不至于报错
-        default_markets = [m for m in available_markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
-        selected_markets = st.multiselect("Select Markets", available_markets, default=default_markets)
+        markets = sorted([str(m) for m in df['Market'].unique() if str(m) != 'nan'])
+        def_markets = [m for m in markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
+        sel_markets = st.multiselect("Select Markets", markets, default=def_markets)
 
-    st.markdown(f"### 📈 Executive Summary ({selected_year} vs {selected_year-1})")
-    
-    # 按照选定的年份过滤
-    df_cy = df[df['Year'] == selected_year]
-    df_py = df[df['Year'] == selected_year - 1]
-
-    cy_bv, cy_hn = df_cy['BV'].sum(), df_cy['HN'].sum()
-    py_bv, py_hn = df_py['BV'].sum(), df_py['HN'].sum()
-    cy_adr = cy_bv / cy_hn if cy_hn > 0 else 0
-    py_adr = py_bv / py_hn if py_hn > 0 else 0
+    # 模块 A：原生 100% 准确度看板
+    st.markdown(f"### 📈 Executive Summary ({sel_year} vs {sel_year-1})")
+    df_cy = df[df['Year'] == sel_year]
+    df_py = df[df['Year'] == sel_year - 1]
     
     c1, c2, c3 = st.columns(3)
-    c1.metric(f"Total BV", f"€ {cy_bv:,.0f}", f"{(cy_bv-py_bv)/py_bv*100:.1f}%" if py_bv>0 else None)
-    c2.metric(f"Total HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
-    c3.metric(f"Avg ADR", f"€ {cy_adr:,.2f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
+    cy_bv = df_cy['BV'].sum()
+    py_bv = df_py['BV'].sum()
+    c1.metric("Total BV", f"€ {cy_bv:,.0f}", f"{(cy_bv-py_bv)/py_bv*100:.1f}%" if py_bv>0 else None)
+    c2.metric("Total HN", f"{df_cy['HN'].sum():,.0f}")
+    c3.metric("Avg ADR", f"€ {df_cy['BV'].sum()/df_cy['HN'].sum() if df_cy['HN'].sum()>0 else 0:,.2f}")
 
-    st.markdown(f"#### 📊 Performance by Destination Type ({selected_year})")
-    
-    # 🌟 修复关键：根据用户在下拉框中选择的真实市场名称过滤
-    if not selected_markets:
-        st.warning("⚠️ Please select at least one Market from the sidebar to view the breakdown.")
-    else:
-        df_cy_filtered = df_cy[df_cy['Market'].isin(selected_markets)]
-        df_py_filtered = df_py[df_py['Market'].isin(selected_markets)]
-        
-        cy_target = df_cy_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-        py_target = df_py_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-        
-        dashboard_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{selected_year}', f'_{selected_year-1}')).fillna(0)
-        
-        if not dashboard_df.empty:
-            dashboard_df['BV_YoY(%)'] = np.where(dashboard_df[f'BV_{selected_year-1}'] > 0, 
-                                                 (dashboard_df[f'BV_{selected_year}'] - dashboard_df[f'BV_{selected_year-1}']) / dashboard_df[f'BV_{selected_year-1}'] * 100, 0)
-            
-            display_cols = ['Market', 'Dest_Type', f'BV_{selected_year}', f'BV_{selected_year-1}', 'BV_YoY(%)']
-            styled_dash = dashboard_df[display_cols].style.format({
-                f'BV_{selected_year}': '€ {:,.0f}', f'BV_{selected_year-1}': '€ {:,.0f}', 'BV_YoY(%)': '{:+.1f}%'
-            }).background_gradient(subset=['BV_YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15)
-            
-            st.dataframe(styled_dash, use_container_width=True, hide_index=True)
-        else:
-            # 如果真的没有数据，优雅地提示，而不是显示一条空线
-            st.info("No destination data available for the selected Markets in this year.")
+    # 模块 B：市场与目的地拆解
+    if sel_markets:
+        st.markdown(f"#### 📊 Performance by Destination Type (Selected Markets)")
+        dash_df = df_cy[df_cy['Market'].isin(sel_markets)].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        if not dash_df.empty:
+            st.dataframe(dash_df.style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
 
-    # ==========================================
-    # 🌟 模块 C：无 Bug 的动态记忆 AI 系统
-    # ==========================================
+    # 模块 C：智能 AI 决策顾问 (带记忆注入)
     st.divider()
-    st.markdown("### 🤖 Strategy Advisor (Conversational)")
+    st.markdown("### 🤖 Strategy Advisor (Deep Dive)")
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # 提取历史对话作为记忆
     history_context = ""
-    if len(st.session_state.messages) > 0:
-        history_context = "\n\n=== RECENT CONVERSATION HISTORY ===\n"
-        for msg in st.session_state.messages[-4:]:
-            if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
-                history_context += f"{msg['role'].upper()}: {msg['content'][:300]}...\n"
+    for msg in st.session_state.messages[-4:]:
+        if isinstance(msg["content"], str):
+            history_context += f"{msg['role']}: {msg['content'][:200]}\n"
 
+    # 🌟 核心指令集：彻底解决数据错误与排版乱码
     custom_instr = f"""
-    You are a Senior McKinsey Consultant. Follow these STRICT rules:
-
-    1. EXPLICIT YEAR FILTER: If user asks for 2026, YOU MUST filter `df = df[df['Year'] == 2026]` in your code.
-    2. EXACT MATCH: If user asks for "NJ XXY", you MUST use EXACT matching `df = df[df['TA_Group'] == 'NJ XXY']`. DO NOT use str.contains()!
-    3. MANDATORY DEST_TYPE: Every analysis MUST include a Markdown table breakdown by `Dest_Type`.
-    4. NO PLOTTING (CRITICAL): NEVER generate charts, plots, or use matplotlib/seaborn. Output MUST be pure text and Markdown tables. 
-    5. NO UNARYOP: Never use the '~' operator. Use '!= False' or '!= True' instead.
-    6. DATATYPE: Cast all numerical results to String (e.g. `result = str(val)`).
-    7. USE RECENT CONVERSATION CONTEXT: If the user asks a follow-up question (e.g. "What about June?"), apply the logic and targets (like 'NJ XXY') from the recent conversation below:
-    {history_context}
+    You are a McKinsey Consultant. Rules:
+    1. EXACT MATCH (CRITICAL): If user asks for 'NJ XXY', you MUST use `df[df['TA_Group'] == 'NJ XXY']`. NEVER use fuzzy search.
+    2. YEAR FILTER: Always apply `df[df['Year'] == 2026]` (or the requested year) first.
+    3. DEST_TYPE DRILL-DOWN: Every analysis MUST include a breakdown by `Dest_Type` (Destination type Asia).
+    4. OUTPUT FORMAT: ALWAYS return a clean pd.DataFrame. If you calculate a single number, turn it into a 1-row DataFrame. Round to 2 decimals.
+    5. NO PLOTS: Do not use matplotlib.
+    6. NO UNARYOP: Do not use '~'. Use '!= True' or '!= False'.
+    7. RECENT CONTEXT: {history_context}
     """
 
+    # 🌟 关键：原地创建 Agent 避开缓存 Bug
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
-            if isinstance(m["content"], pd.DataFrame): 
-                st.dataframe(m["content"], use_container_width=True)
-            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
-                st.image(m["content"])
-            else: 
-                st.markdown(m["content"])
+            if isinstance(m["content"], pd.DataFrame): st.dataframe(m["content"], use_container_width=True, hide_index=True)
+            else: st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Deep dive into NJ XXY performance from Jan to May 2026."):
+    if prompt := st.chat_input("E.g., Analyze NJ XXY monthly BV and Dest_Type breakdown for Jan-May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Applying exact filters and calculating YoY..."):
+            with st.spinner("Executing precise deep dive..."):
                 try:
                     response = agent.chat(prompt)
                     
-                    if isinstance(response, pd.DataFrame):
-                        st.markdown("**📊 Data Table Breakdown:**")
-                        st.dataframe(response, use_container_width=True)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                    elif isinstance(response, str) and response.endswith(".png"):
-                        if os.path.exists(response): st.image(response)
-                        else: st.warning(f"AI generated a chart path, but file not found: {response}")
+                    if isinstance(response, pd.DataFrame) or type(response).__name__ == 'SmartDataframe':
+                        if type(response).__name__ == 'SmartDataframe': response = response.dataframe
+                        st.markdown("**📊 Deep Dive Results:**")
+                        st.dataframe(response, use_container_width=True, hide_index=True)
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     else:
-                        response_str = str(response)
-                        st.markdown(response_str)
-                        st.session_state.messages.append({"role": "assistant", "content": response_str})
+                        res_str = str(response)
+                        st.markdown(res_str)
+                        st.session_state.messages.append({"role": "assistant", "content": res_str})
                 except Exception as e:
                     st.error(f"Analysis Error: {e}")
 else:
-    st.markdown("""
-        <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-            <h1 style="font-size: 3.5rem; margin-bottom: 1rem; color: #1D263B;">Ψ Executive Intelligence</h1>
-            <p style="color: #6c757d; max-width: 600px; font-size: 1.1rem; line-height: 1.6;">
-                Ready for the boardroom. Upload your data to activate 100% accurate YoY Dashboards, Market/Dest_Type Pivots, and a Strategic AI with complete memory.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; padding-top:150px; opacity:0.2;'>Ψ Executive Hub</h1>", unsafe_allow_html=True)
