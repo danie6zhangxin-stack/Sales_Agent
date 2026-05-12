@@ -7,7 +7,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 import plotly.graph_objects as go
 import datetime
 
-# --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
+# --- 1. 高端商业视觉配置 ---
 st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", page_icon="Ψ")
 
 CSS_STYLE = """
@@ -19,18 +19,10 @@ CSS_STYLE = """
     div[data-testid="stMetric"] { background-color: white; border-radius: 6px; padding: 15px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); border-left: 4px solid var(--cm-blue); }
     .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; background-color: white; }
     
-    /* 🌟 专属定制：把用户和AI的头像全部改成 ClubMed 深海蓝 */
+    /* 深海蓝专属对话头像 */
     div[data-testid="stChatMessage"] { background-color: transparent !important; border: none !important; border-bottom: 1px solid #EAECEF !important; padding: 1.5rem 0.5rem !important; }
-    div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { 
-        background-color: var(--cm-blue) !important; 
-        color: white !important;
-    }
-    /* 强制让内部的 SVG 图标变成白色，完美反衬深蓝背景 */
-    div[data-testid="stChatMessageAvatarUser"] svg, div[data-testid="stChatMessageAvatarAssistant"] svg {
-        fill: white !important;
-        color: white !important;
-    }
-    
+    div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important; }
+    div[data-testid="stChatMessageAvatarUser"] svg, div[data-testid="stChatMessageAvatarAssistant"] svg { fill: white !important; color: white !important; }
     .stSidebar { background-color: white !important; border-right: 1px solid #EAECEF; }
 </style>
 """
@@ -72,59 +64,60 @@ def load_and_clean(file):
         data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     return data
 
-# --- 🌟 高级画图模块 (Pacing Comparison with % and Dynamic Title) ---
+# --- 🌟 高级画图模块 (加粗大字号 + 动态抬头 + Category 百分比) ---
 def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
-    # 汇总数据
     cy_g = cy_df.groupby('Dest_Type')[['BV']].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[['BV']].sum().reset_index()
     
-    # 🌟 统一转换为 KEUR (除以 1000)
     cy_g['BV'] = cy_g['BV'] / 1000
     py_g['BV'] = py_g['BV'] / 1000
     
     combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
-    
-    # 🌟 计算各 Category 的 YoY 百分比变化
     combined['YoY_Pct'] = np.where(combined['BV_PY'] > 0, (combined['BV_CY'] - combined['BV_PY']) / combined['BV_PY'] * 100, 0)
     
-    # 构建文字标签 (如果 PY > 0，则展示 k€ + 百分比)
-    text_cy = [f"{cy:,.0f}k<br>({pct:+.1f}%)" if py > 0 else f"{cy:,.0f}k" for cy, py, pct in zip(combined['BV_CY'], combined['BV_PY'], combined['YoY_Pct'])]
-    text_py = [f"{py:,.0f}k" for py in combined['BV_PY']]
+    # 🌟 用 <b> 标签加粗，保留千分位和增减比例
+    text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined['BV_CY'], combined['BV_PY'], combined['YoY_Pct'])]
+    text_py = [f"<b>{py:,.0f}k</b>" for py in combined['BV_PY']]
     
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=combined['Dest_Type'], y=combined['BV_CY'], name=cy_label, 
-        marker_color='#1D263B', text=text_cy, textposition='auto'
+        marker_color='#1D263B', text=text_cy, textposition='auto', textfont=dict(size=14)
     ))
     fig.add_trace(go.Bar(
         x=combined['Dest_Type'], y=combined['BV_PY'], name=py_label, 
-        marker_color='#A4B6B0', text=text_py, textposition='auto'
+        marker_color='#A4B6B0', text=text_py, textposition='auto', textfont=dict(size=14)
     ))
     
-    # 🌟 动态添加精美抬头
     fig.update_layout(
         title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18, color='#1D263B'), y=0.95),
         barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', 
         margin=dict(t=70, b=0, l=0, r=0), 
         legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'),
-        yaxis=dict(visible=False) # 隐藏Y轴，靠标签说话，极简风格
+        yaxis=dict(visible=False)
     )
     return fig
 
 # --- 🌟 AI 麦肯锡级洞察生成器 ---
 def generate_pacing_insights(cy_data, py_data, context_desc):
-    cy_bv = cy_data['BV'].sum() / 1000 # 统一用 k€ 喂给 AI
+    cy_bv = cy_data['BV'].sum() / 1000 
     py_bv = py_data['BV'].sum() / 1000
     pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0
     
     sys_prompt = "You are a Senior Strategy Consultant at ClubMed. Analyze the variance between Current Year (CY) and Previous Year (PY) booking pacing. Provide a professional, boardroom-ready analysis (max 4 sentences). Mention if the pace is 'accelerating' or 'lagging' and specify which Destination Types are driving the change."
-    user_prompt = f"Context: {context_desc}\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed Data:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
+    user_prompt = f"Context: {context_desc}\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed CY Data:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
     
     try:
         resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
         return resp.content
     except:
         return f"Booking pace is currently showing a {pct:+.1f}% variance compared to the same period last year."
+
+# --- 提取器 ---
+def extract_payload(resp):
+    if isinstance(resp, dict) and resp.get('type') == 'insight_data': return resp
+    try: return pd.DataFrame(resp)
+    except: return None
 
 # ==========================================
 # 🌟 4. 业务界面逻辑
@@ -142,12 +135,20 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.divider()
         st.markdown("### 📅 Booking Window (Pacing)")
         max_date = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
-        date_range = st.date_input("Select Sales Date Range:", value=(max_date - datetime.timedelta(days=90), max_date))
         
-        if len(date_range) == 2:
-            start_date, end_date = date_range
-            py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
-        else: st.stop()
+        # 🌟 彻底修复输入乱跳问题：将区间切分为两个独立的 Date Input
+        col_start, col_end = st.columns(2)
+        start_date = col_start.date_input("Start Date", value=max_date - datetime.timedelta(days=90))
+        end_date = col_end.date_input("End Date", value=max_date)
+        
+        if start_date <= end_date:
+            try:
+                py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
+            except ValueError:
+                py_start, py_end = start_date - datetime.timedelta(days=365), end_date - datetime.timedelta(days=365)
+        else:
+            st.error("Start Date must be before End Date.")
+            st.stop()
 
     # --- 统一过滤函数 ---
     def apply_ui_filters(input_df, year_val, s_date, e_date):
@@ -162,10 +163,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_cy_base = apply_ui_filters(df, sel_year, start_date, end_date)
     df_py_base = apply_ui_filters(df, sel_year - 1, py_start, py_end)
 
-    # --- 🌟 KPI 板块 (全面 Delta 化 + KEUR) ---
+    # --- 🌟 KPI 板块 (全维度百分比) ---
     st.markdown(f"### 📈 Executive Booking Pacing: {sel_year} vs {sel_year-1}")
     
-    # 数据计算 (BV 转为 KEUR, HN 和 ADR 保持原样)
     cy_bv = df_cy_base['BV'].sum() / 1000
     py_bv = df_py_base['BV'].sum() / 1000
     cy_hn = df_cy_base['HN'].sum()
@@ -178,14 +178,18 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     c2.metric("Paced HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
     c3.metric("Current ADR", f"€ {cy_adr:,.0f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
 
-    # --- 🌟 Pacing 图表 (附带动态抬头) ---
-    filter_desc = f"{season} | Mkts: {len(sel_markets) if sel_markets else 'All'} | Window: {start_date.strftime('%d %b')} - {end_date.strftime('%d %b')}"
+    # --- 🌟 动态 Title 的精美图表 ---
+    if not sel_markets: mkt_title = "All Markets"
+    elif len(sel_markets) <= 2: mkt_title = ", ".join(sel_markets)
+    else: mkt_title = f"{len(sel_markets)} Markets"
+    
+    filter_desc = f"{season} | {mkt_title} | Booking: {start_date.strftime('%d %b')} - {end_date.strftime('%d %b')}"
     chart_title = f"<b>Booking Pace by Destination Type</b><br><sup style='color: gray; font-size: 14px;'>{filter_desc} (Unit: k€)</sup>"
     
     st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问
+    # 🌟 5. 智能 AI 顾问 (双库传入 + 同源分析)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor")
@@ -194,42 +198,72 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if prompt := st.chat_input("Ask about specific variances or deep dive entities."):
+    if prompt := st.chat_input("E.g., Analyze the variance for NJ XXY"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing data and generating strategic insights..."):
+            with st.spinner("Analyzing targeted pacing data..."):
+                # 🌟 终极防错解法：直接把过滤好的当年和去年数据一起传给AI！
+                # 这样它在搜 NJ XXY 的时候，去年和今年的基准就绝对是一致的。
+                agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False})
+                
                 hacked_prompt = f"""
                 User Question: {prompt}
-                Apply these filters in your Python code:
-                - Year: {sel_year}
-                - Booking Window: Sales_Date between {start_date} and {end_date}
-                - Season: {season}
                 
-                Matching Rule: Use `.str.replace(' ', '').str.upper().str.contains('CLEAN_NAME')` for searching entities to ignore spaces and case.
-                Final Task: Return only the final filtered pandas DataFrame. Assign it to `result`.
+                You have been provided two dataframes:
+                `dfs[0]` is Current Year (CY) baseline.
+                `dfs[1]` is Previous Year (PY) baseline.
+                
+                TASK:
+                If the user asks about an entity, filter BOTH dfs[0] and dfs[1] using a fuzzy uppercase match:
+                ```python
+                clean_target = 'ENTITY_NAME_HERE'.replace(' ', '').upper()
+                
+                mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                df_cy_filtered = dfs[0][mask_cy]
+                
+                mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                df_py_filtered = dfs[1][mask_py]
+                ```
+                If no specific entity is requested, just set df_cy_filtered = dfs[0] and df_py_filtered = dfs[1].
+                
+                CRITICAL: YOU MUST RETURN EXACTLY THIS DICTIONARY FORMAT:
+                result = {{
+                    'type': 'insight_data',
+                    'cy_data': df_cy_filtered,
+                    'py_data': df_py_filtered
+                }}
                 """
 
-                agent = Agent(df, config={"llm": llm, "save_charts": False})
                 try:
-                    response_df = agent.chat(hacked_prompt)
+                    response_dict = agent.chat(hacked_prompt)
+                    payload = extract_payload(response_dict)
                     
-                    if isinstance(response_df, pd.DataFrame) and not response_df.empty:
-                        # 换算单位进行展示
-                        display_df = response_df.groupby(['Month','Dest_Type'])[['BV','HN']].sum().reset_index()
-                        display_df['BV (k€)'] = display_df['BV'] / 1000
-                        display_df = display_df.drop(columns=['BV'])
+                    if isinstance(payload, dict) and payload.get('type') == 'insight_data':
+                        ai_cy_df = payload['cy_data']
+                        ai_py_df = payload['py_data']
                         
-                        st.markdown("**🔍 Filtered Data Detail:**")
-                        st.dataframe(display_df.style.format({'BV (k€)': '{:,.0f}k', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
-                        
-                        st.markdown("**📉 YoY Pacing Analysis:**")
-                        insights = generate_pacing_insights(response_df, df_py_base, prompt)
-                        st.info(f"💡 **Executive Insight:**\n\n{insights}")
-                        st.session_state.messages.append({"role": "assistant", "content": insights})
+                        if not ai_cy_df.empty or not ai_py_df.empty:
+                            # 数据明细呈现 (换算 k€)
+                            display_df = ai_cy_df.groupby(['Month','Dest_Type'])[['BV','HN']].sum().reset_index()
+                            display_df['BV (k€)'] = display_df['BV'] / 1000
+                            display_df = display_df.drop(columns=['BV'])
+                            
+                            st.markdown("**🔍 CY Filtered Detail:**")
+                            st.dataframe(display_df.style.format({'BV (k€)': '{:,.0f}k', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
+                            
+                            # 生成精准文字分析
+                            st.markdown("**📉 Strategy Insight:**")
+                            insights = generate_pacing_insights(ai_cy_df, ai_py_df, prompt)
+                            st.info(f"💡 **Executive Report:**\n\n{insights}")
+                            st.session_state.messages.append({"role": "assistant", "content": insights})
+                        else:
+                            msg = "⚠️ AI successfully ran the search, but no data was found for this target in the selected timeframe."
+                            st.warning(msg)
+                            st.session_state.messages.append({"role": "assistant", "content": msg})
                     else:
-                        st.markdown(str(response_df))
+                        st.markdown(str(response_dict))
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
 else:
