@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np 
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
-# 🌟 修复点：更新为 LangChain 的最新核心组件路径
 from langchain_core.messages import SystemMessage, HumanMessage
 import plotly.graph_objects as go
 import os
@@ -64,13 +63,10 @@ def load_and_clean(file):
 # --- 🌟 高级画图模块 (Plotly) ---
 def draw_executive_chart(monthly_df):
     fig = go.Figure()
-    # 柱状图：BV
     fig.add_trace(go.Bar(x=monthly_df['Month'], y=monthly_df['BV'], name='Total BV (€)', marker_color='#1D263B', 
                          text=monthly_df['BV'], texttemplate='%{text:,.0f}', textposition='inside'))
-    # 柱状图：HN
     fig.add_trace(go.Bar(x=monthly_df['Month'], y=monthly_df['HN'], name='Nights (HN)', marker_color='#A4B6B0', 
                          text=monthly_df['HN'], texttemplate='%{text:,.0f}', textposition='inside'))
-    # 折线图：ADR (悬浮在次坐标轴)
     fig.add_trace(go.Scatter(x=monthly_df['Month'], y=monthly_df['ADR'], name='ADR (€)', mode='lines+markers+text', 
                              marker_color='#A64B35', line=dict(width=3), yaxis='y2',
                              text=monthly_df['ADR'], texttemplate='%{text:,.0f}', textposition='top center'))
@@ -79,7 +75,7 @@ def draw_executive_chart(monthly_df):
         title=dict(text="Monthly Performance Trend", font=dict(family="Playfair Display", size=20, color='#1D263B')),
         plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=50, l=0, r=0, b=0),
         legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
-        yaxis=dict(showgrid=True, gridcolor='#EAECEF', visible=False), # 隐藏坐标轴，依赖直观数据标签
+        yaxis=dict(showgrid=True, gridcolor='#EAECEF', visible=False), 
         yaxis2=dict(overlaying='y', side='right', visible=False),
         barmode='group'
     )
@@ -145,10 +141,11 @@ if uploaded_file:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], str): st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Breakdown China Mainland performance from Jan to May 2026."):
+    if prompt := st.chat_input("E.g., Show me the performance for NJ XXY from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
+        # 🌟 无敌全域扫描：不再让大模型猜列名，直接4个核心维度同时搜索！
         hacked_prompt = f"""
         User Question: {prompt}
         
@@ -161,8 +158,15 @@ if uploaded_file:
 
         df_base = dfs[0].copy()
         
-        # 1. Target Filtering (Adapt TARGET_ENTITY and CORRECT_COLUMN from: Market, TA_Group, Resort, Dest_Type)
-        df_target = df_base[df_base['CORRECT_COLUMN'].str.contains('TARGET_ENTITY', case=False, na=False)]
+        # 1. Omni-Search Target Filtering (Searches Market, TA_Group, Resort, Dest_Type simultaneously)
+        target = 'TARGET_ENTITY_FROM_QUESTION'
+        mask = (
+            df_base['Market'].str.contains(target, case=False, na=False) |
+            df_base['TA_Group'].str.contains(target, case=False, na=False) |
+            df_base['Resort'].str.contains(target, case=False, na=False) |
+            df_base['Dest_Type'].str.contains(target, case=False, na=False)
+        )
+        df_target = df_base[mask]
         
         # 2. Time Filtering (CY = 2026, PY = 2025)
         df_cy = df_target[(df_target['Year'] == 2026) & (df_target['Month_Num'].between(1, 5))]
@@ -184,14 +188,14 @@ if uploaded_file:
             'monthly': monthly_df,
             'cy_bv': float(df_cy['BV'].sum()),
             'py_bv': float(df_py['BV'].sum()),
-            'target': 'TARGET_ENTITY'
+            'target': target
         }}
         ```
-        CRITICAL: ASSIGN THE DICTIONARY EXACTLY AS SHOWN TO THE VARIABLE `result`.
+        CRITICAL: ONLY REPLACE `TARGET_ENTITY_FROM_QUESTION` WITH THE ENTITY (e.g. 'NJ XXY' or 'China Mainland'). DO NOT CHANGE THE MASK LOGIC. ASSIGN TO `result`.
         """
 
         with st.chat_message("assistant"):
-            with st.spinner("Extracting multi-dimensional data & compiling McKinsey insights..."):
+            with st.spinner("Executing Omni-Search Radar & rendering Plotly dashboard..."):
                 try:
                     response = agent.chat(hacked_prompt)
                     payload = extract_payload(response)
@@ -211,7 +215,7 @@ if uploaded_file:
                         
                     elif isinstance(payload, pd.DataFrame):
                         st.dataframe(payload, use_container_width=True)
-                        st.session_state.messages.append({"role": "assistant", "content": "Here is the data table."})
+                        st.session_state.messages.append({"role": "assistant", "content": "Here is the raw data table."})
                     else:
                         st.warning("⚠️ Data parsing failed. See code below.")
                         
