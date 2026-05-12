@@ -4,7 +4,7 @@ import numpy as np
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg') # 强制离线渲染
+matplotlib.use('Agg') 
 import os
 
 # --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
@@ -171,42 +171,9 @@ if uploaded_file:
         if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
             history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 核心：强行注入完美的数据处理流代码
-    custom_instr = f"""
-    You are a code generator. Output VALID PYTHON CODE ONLY inside ```python and ```.
-    
-    === EXACT CODE TEMPLATE (YOU MUST COPY AND ADAPT THIS) ===
-    DO NOT invent new logic. Replace TARGET_NAME and the month numbers as needed.
-    
-    ```python
-    import numpy as np
-    
-    df_filtered = dfs[0].copy()
-    
-    # 1. Filter Year and Months
-    df_filtered = df_filtered[df_filtered['Year'] == 2026]
-    df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
-    
-    # 2. Filter Agency
-    df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('TARGET_NAME', case=False, na=False)]
-    
-    # 3. Group and Calculate
-    df_grouped = df_filtered.groupby(['Month_Num', 'Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
-    df_grouped['ADR'] = np.where(df_grouped['HN'] > 0, df_grouped['BV'] / df_grouped['HN'], 0)
-    
-    # 4. Sort correctly and drop the helper column
-    df_grouped = df_grouped.sort_values(['Month_Num', 'Dest_Type']).drop(columns=['Month_Num'])
-    
-    # 5. Output
-    result = df_grouped
-    ```
-    
-    === RULES ===
-    1. Output code ONLY.
-    2. `result` MUST be assigned the dataframe `df_grouped` directly. DO NOT assign a dictionary.
-    
-    MEMORY:
-    {history_context}
+    custom_instr = """
+    You are a strictly programmatic code generator for PandasAI.
+    You must output Python code ONLY inside ```python and ```.
     """
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
@@ -215,6 +182,9 @@ if uploaded_file:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame): 
                 st.dataframe(m["content"], use_container_width=True, hide_index=True)
+            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
+                # 如果它还是执迷不悟画了图，显示个警告而不是直接崩
+                st.warning("⚠️ AI generated a plot instead of a data table. Please check the code.")
             else: 
                 st.markdown(m["content"])
 
@@ -222,22 +192,47 @@ if uploaded_file:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
+        # 🌟 绝杀：连模板都不让它选了，直接把完整代码强塞在用户的提问里！
         hacked_prompt = f"""
         User Question: {prompt}
         
-        [SYSTEM OVERRIDE]: 
-        Copy the code template from your instructions exactly. Replace 'TARGET_NAME' with the agency from the User Question. Do NOT use .apply(). Ensure you output code inside ```python and ```.
+        [SYSTEM OVERRIDE - LEVEL 10 RESTRICTION]: 
+        DO NOT GENERATE ANY PLOTS! DO NOT IMPORT MATPLOTLIB!
+        YOU MUST COPY AND EXECUTE THIS EXACT CODE STRUCTURE, JUST REPLACE 'TARGET_AGENCY_NAME' WITH THE ENTITY IN THE USER'S QUESTION:
+
+        ```python
+        import pandas as pd
+        import numpy as np
+
+        df_filtered = dfs[0].copy()
+        
+        # 1. ALWAYS use str.contains for TA_Group. NEVER use == !
+        df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('TARGET_AGENCY_NAME', case=False, na=False)]
+        
+        # 2. Filter Time
+        df_filtered = df_filtered[df_filtered['Year'] == 2026]
+        df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
+
+        # 3. Group and Math
+        df_grouped = df_filtered.groupby(['Month_Num', 'Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
+        df_grouped['ADR'] = np.where(df_grouped['HN'] > 0, df_grouped['BV'] / df_grouped['HN'], 0)
+        
+        # 4. Clean formatting
+        result = df_grouped.sort_values(['Month_Num', 'Dest_Type']).drop(columns=['Month_Num'])
+        ```
+        
+        CRITICAL: ASSIGN THE DATAFRAME TO `result`. DO NOT CREATE A DICTIONARY.
         """
 
         with st.chat_message("assistant"):
-            with st.spinner("Compiling pre-validated analysis template..."):
+            with st.spinner("Executing forced code injection template..."):
                 try:
                     response = agent.chat(hacked_prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): Extracted successfully, but 0 records found for the target in that timeframe.")
+                            st.warning("⚠️ 查无数据 (Empty Table): Extracted successfully using `str.contains`, but 0 records found for the target in that timeframe.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
