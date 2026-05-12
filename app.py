@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np 
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
-import matplotlib
-matplotlib.use('Agg') # 强制离线渲染
+from langchain.schema import SystemMessage, HumanMessage
+import plotly.graph_objects as go
 import os
 
 # --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
@@ -13,36 +13,14 @@ st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", p
 CSS_STYLE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
-    :root { 
-        --cm-blue: #1D263B;      
-        --cm-terracotta: #A64B35; 
-        --cm-beige: #F8F9FA;     
-    }
-    
+    :root { --cm-blue: #1D263B; --cm-terracotta: #A64B35; --cm-sage: #A4B6B0; --cm-beige: #F8F9FA; }
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
     h1, h2, h3, h4 { font-family: 'Playfair Display', serif !important; color: var(--cm-blue); }
-    
-    div[data-testid="stMetric"] { 
-        background-color: white; border-radius: 6px; padding: 15px 20px; 
-        box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); 
-    }
+    div[data-testid="stMetric"] { background-color: white; border-radius: 6px; padding: 15px 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 28px; }
-    
-    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); background-color: white; }
-    
-    div[data-testid="stChatMessage"] { 
-        background-color: transparent !important; 
-        border: none !important; 
-        border-bottom: 1px solid #EAECEF !important; 
-        padding: 1.5rem 0.5rem !important; 
-        margin-bottom: 0 !important; 
-    }
-    div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
-    
-    div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { 
-        background-color: var(--cm-blue) !important; color: white !important;
-    }
-    
+    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; background-color: white; }
+    div[data-testid="stChatMessage"] { background-color: transparent !important; border: none !important; border-bottom: 1px solid #EAECEF !important; padding: 1.5rem 0.5rem !important; }
+    div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important;}
     .stSidebar { background-color: white !important; border-right: 1px solid #EAECEF; }
 </style>
 """
@@ -56,7 +34,7 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 核心数据清洗引擎 ---
+# --- 3. 核心数据清洗 ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
@@ -65,8 +43,6 @@ def load_and_clean(file):
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
-        'SALES_CALENDAR[Sales_date]': 'Sales_Date',
-        'SALES_CALENDAR[Sales_Month_name]': 'Sales_Month',
         'REF_SALES_MARKET[Market]': 'Market',
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
@@ -75,40 +51,64 @@ def load_and_clean(file):
         '[HN_final]': 'HN'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
-    
-    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month', 'Sales_Month']:
-        if col in data.columns:
-            data[col] = data[col].astype(str).str.strip()
-            
-    if 'Sales_Date' in data.columns:
-        data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
-    
+    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
+        if col in data.columns: data[col] = data[col].astype(str).str.strip()
     for col in ['BV', 'HN']:
-        if col in data.columns:
-            data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-    
+        if col in data.columns: data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
     data['ADR'] = (data['BV'] / data['HN']).replace([float('inf'), -float('inf')], 0).fillna(0)
     data['Year'] = pd.to_numeric(data['Year'], errors='coerce').fillna(0).astype(int)
-    
-    if 'Month_Num' in data.columns:
-        data['Month_Num'] = pd.to_numeric(data['Month_Num'], errors='coerce').fillna(0).astype(int)
-        
+    if 'Month_Num' in data.columns: data['Month_Num'] = pd.to_numeric(data['Month_Num'], errors='coerce').fillna(0).astype(int)
     return data
 
+# --- 🌟 高级画图模块 (Plotly) ---
+def draw_executive_chart(monthly_df):
+    fig = go.Figure()
+    # 柱状图：BV
+    fig.add_trace(go.Bar(x=monthly_df['Month'], y=monthly_df['BV'], name='Total BV (€)', marker_color='#1D263B', 
+                         text=monthly_df['BV'], texttemplate='%{text:,.0f}', textposition='inside'))
+    # 柱状图：HN
+    fig.add_trace(go.Bar(x=monthly_df['Month'], y=monthly_df['HN'], name='Nights (HN)', marker_color='#A4B6B0', 
+                         text=monthly_df['HN'], texttemplate='%{text:,.0f}', textposition='inside'))
+    # 折线图：ADR (悬浮在次坐标轴)
+    fig.add_trace(go.Scatter(x=monthly_df['Month'], y=monthly_df['ADR'], name='ADR (€)', mode='lines+markers+text', 
+                             marker_color='#A64B35', line=dict(width=3), yaxis='y2',
+                             text=monthly_df['ADR'], texttemplate='%{text:,.0f}', textposition='top center'))
+
+    fig.update_layout(
+        title=dict(text="Monthly Performance Trend", font=dict(family="Playfair Display", size=20, color='#1D263B')),
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=50, l=0, r=0, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="right", x=1),
+        yaxis=dict(showgrid=True, gridcolor='#EAECEF', visible=False), # 隐藏坐标轴，依赖直观数据标签
+        yaxis2=dict(overlaying='y', side='right', visible=False),
+        barmode='group'
+    )
+    return fig
+
+# --- 🌟 AI 洞察报告生成器 ---
+def generate_executive_summary(target, cy_bv, py_bv, summary_df):
+    variance = cy_bv - py_bv
+    pct = (variance / py_bv * 100) if py_bv > 0 else 0
+    sys_prompt = "You are a Senior McKinsey Strategy Consultant working for ClubMed. Write a concise, professional executive summary (max 3 sentences) analyzing this performance. Explain the YoY variance and highlight the top contributing Destination Type. Keep it formal and boardroom-ready."
+    user_prompt = f"Target Entity: {target}\nCurrent Year BV: €{cy_bv:,.0f}\nPrevious Year BV: €{py_bv:,.0f}\nYoY Variance: {pct:+.1f}%\n\nPerformance by Destination Type:\n{summary_df.to_string()}"
+    
+    try:
+        resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
+        return resp.content
+    except:
+        return f"The entity generated €{cy_bv:,.0f} in the current period, representing a {pct:+.1f}% YoY change."
+
 # ==========================================
-# 🌟 核心提取器 (拦截一切奇葩格式)
+# 🌟 核心拦截提取器
 # ==========================================
-def extract_dataframe(resp):
+def extract_payload(resp):
+    if isinstance(resp, dict) and resp.get('type') == 'advanced_dashboard': return resp
     if isinstance(resp, pd.DataFrame): return resp
-    if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame):
-        return resp['value']
-    if hasattr(resp, 'to_pandas'): return resp.to_pandas()
+    if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame): return resp['value']
     if hasattr(resp, 'dataframe'): return resp.dataframe
-    if hasattr(resp, '_df'): return resp._df
     try: return pd.DataFrame(resp)
     except: return None
 
-# --- 4. 业务逻辑与界面展示 ---
+# --- 4. 业务逻辑与界面 ---
 with st.sidebar:
     st.markdown("<h2 style='color:#A64B35;'>ClubMed Ψ Hub</h2>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload SalesData.csv", type=['csv'])
@@ -116,150 +116,120 @@ with st.sidebar:
 
 if uploaded_file:
     df = load_and_clean(uploaded_file)
-    valid_resorts = [str(r) for r in df['Resort'].unique() if str(r).lower() != 'nan']
-    valid_resorts_str = ", ".join(valid_resorts)
     
     with st.sidebar:
-        st.markdown("### ⚙️ Global Controls")
         years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
         sel_year = st.selectbox("Current Year Filter", years) if years else 2026
-        
         markets = sorted([str(m) for m in df['Market'].unique() if str(m).strip() != '' and str(m).lower() != 'nan'])
-        def_markets = [m for m in markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
-        sel_markets = st.multiselect("Active Markets (Dashboard)", markets, default=def_markets)
+        sel_markets = st.multiselect("Active Markets (Dashboard)", markets)
 
     st.markdown(f"### 📈 Executive Performance ({sel_year} vs {sel_year-1})")
-    df_cy = df[df['Year'] == sel_year]
-    df_py = df[df['Year'] == sel_year - 1]
-    
+    df_cy = df[df['Year'] == sel_year]; df_py = df[df['Year'] == sel_year - 1]
     c1, c2, c3 = st.columns(3)
-    cy_bv = df_cy['BV'].sum()
-    py_bv = df_py['BV'].sum()
-    c1.metric("Total BV", f"€ {cy_bv:,.0f}", f"{(cy_bv-py_bv)/py_bv*100:.1f}%" if py_bv>0 else None)
+    c1.metric("Total BV", f"€ {df_cy['BV'].sum():,.0f}", f"{(df_cy['BV'].sum()-df_py['BV'].sum())/df_py['BV'].sum()*100:.1f}%" if df_py['BV'].sum()>0 else None)
     c2.metric("Total HN", f"{df_cy['HN'].sum():,.0f}")
     c3.metric("Avg ADR", f"€ {df_cy['BV'].sum()/df_cy['HN'].sum() if df_cy['HN'].sum()>0 else 0:,.2f}")
 
-    if sel_markets:
-        st.markdown(f"#### 📊 Regional Drill-down by Destination Type")
-        df_cy_filtered = df_cy[df_cy['Market'].isin(sel_markets)]
-        df_py_filtered = df_py[df_py['Market'].isin(sel_markets)]
-        
-        cy_target = df_cy_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-        py_target = df_py_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-        
-        dash_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{sel_year}', f'_{sel_year-1}')).fillna(0)
-        if not dash_df.empty:
-            dash_df['YoY(%)'] = np.where(dash_df[f'BV_{sel_year-1}'] > 0, 
-                                        (dash_df[f'BV_{sel_year}'] - dash_df[f'BV_{sel_year-1}']) / dash_df[f'BV_{sel_year-1}'] * 100, 0)
-            
-            display_cols = ['Market', 'Dest_Type', f'BV_{sel_year}', f'BV_{sel_year-1}', 'YoY(%)']
-            st.dataframe(dash_df[display_cols].style.format({
-                f'BV_{sel_year}': '€ {:,.0f}', f'BV_{sel_year-1}': '€ {:,.0f}', 'YoY(%)': '{:+.1f}%'
-            }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
-
     # ==========================================
-    # 🌟 模块 C：智能 AI 决策顾问 (半开放模板)
+    # 🌟 模块 C：全能型战略 AI 顾问
     # ==========================================
     st.divider()
-    st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
+    st.markdown("### 🤖 Strategy Advisor (Full Dashboard Engine)")
     
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    if "messages" not in st.session_state: st.session_state.messages = []
 
-    history_context = ""
-    for msg in st.session_state.messages[-4:]:
-        if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
-            history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
+    agent = Agent(df, config={"llm": llm, "custom_instructions": "You generate strictly valid Python code.", "save_charts": False, "enable_cache": False})
 
-    custom_instr = """
-    You are a strictly programmatic code generator for PandasAI.
-    You must output Python code ONLY inside ```python and ```.
-    """
-
-    agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
-
+    # 渲染历史
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
-            if isinstance(m["content"], pd.DataFrame): 
-                st.dataframe(m["content"], use_container_width=True, hide_index=True)
-            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
-                st.warning("⚠️ AI generated a plot instead of a data table. Please check the code.")
-            else: 
-                st.markdown(m["content"])
+            if isinstance(m["content"], str): st.markdown(m["content"])
 
     if prompt := st.chat_input("E.g., Breakdown China Mainland performance from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
-        # 🌟 终极进化：允许智能选列，彻底封杀文字总结
+        # 🌟 超神级 Payload 模板：强行提取三个维度的数据
         hacked_prompt = f"""
         User Question: {prompt}
         
-        [SYSTEM OVERRIDE - LEVEL 10 RESTRICTION]: 
-        1. DO NOT GENERATE PLOTS.
-        2. NEVER CALCULATE VARIANCES OR RETURN A STRING! YOU MUST OUTPUT A DATAFRAME.
-        
-        YOU MUST COPY AND EXECUTE THIS EXACT CODE STRUCTURE:
+        [SYSTEM OVERRIDE]: 
+        DO NOT GENERATE ANY PLOTS! YOU MUST EXECUTE THIS EXACT CODE STRUCTURE TO RETURN A DICTIONARY PAYLOAD:
 
         ```python
         import pandas as pd
         import numpy as np
 
-        df_filtered = dfs[0].copy()
+        df_base = dfs[0].copy()
         
-        # 1. Target Filtering
-        # CRITICAL: CHOOSE THE CORRECT COLUMN from: 'Market', 'TA_Group', 'Resort', or 'Dest_Type'.
-        # E.g. If user asks 'China Mainland', use 'Market'. If user asks 'NJ XXY', use 'TA_Group'.
-        df_filtered = df_filtered[df_filtered['CORRECT_COLUMN_NAME_HERE'].str.contains('TARGET_ENTITY_HERE', case=False, na=False)]
+        # 1. Target Filtering (Adapt TARGET_ENTITY and CORRECT_COLUMN from: Market, TA_Group, Resort, Dest_Type)
+        df_target = df_base[df_base['CORRECT_COLUMN'].str.contains('TARGET_ENTITY', case=False, na=False)]
         
-        # 2. Filter Time (ADAPT THESE LINES BASED ON THE USER QUESTION)
-        df_filtered = df_filtered[df_filtered['Year'] == 2026]
-        df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
+        # 2. Time Filtering (CY = 2026, PY = 2025)
+        df_cy = df_target[(df_target['Year'] == 2026) & (df_target['Month_Num'].between(1, 5))]
+        df_py = df_target[(df_target['Year'] == 2025) & (df_target['Month_Num'].between(1, 5))]
 
-        # 3. Group and Math (ALWAYS include Month and Dest_Type breakdown)
-        df_grouped = df_filtered.groupby(['Month_Num', 'Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
-        df_grouped['ADR'] = np.where(df_grouped['HN'] > 0, df_grouped['BV'] / df_grouped['HN'], 0)
-        
-        # 4. Clean formatting
-        result = df_grouped.sort_values(['Month_Num', 'Dest_Type']).drop(columns=['Month_Num'])
+        # 3. Table 1: Summary by Dest_Type ONLY
+        summary_df = df_cy.groupby('Dest_Type').agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
+        summary_df['ADR'] = np.where(summary_df['HN'] > 0, summary_df['BV'] / summary_df['HN'], 0)
+
+        # 4. Table 2: Monthly Breakdown ONLY
+        monthly_df = df_cy.groupby(['Month_Num', 'Month']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index().sort_values('Month_Num')
+        monthly_df['ADR'] = np.where(monthly_df['HN'] > 0, monthly_df['BV'] / monthly_df['HN'], 0)
+        monthly_df = monthly_df.drop(columns=['Month_Num'])
+
+        # 5. Output Payload
+        result = {{
+            'type': 'advanced_dashboard',
+            'summary': summary_df,
+            'monthly': monthly_df,
+            'cy_bv': float(df_cy['BV'].sum()),
+            'py_bv': float(df_py['BV'].sum()),
+            'target': 'TARGET_ENTITY'
+        }}
         ```
-        
-        CRITICAL: ASSIGN THE FINAL DATAFRAME DIRECTLY TO THE VARIABLE `result`. 
-        DO NOT assign `result = {{'type': 'string', 'value': ...}}`.
+        CRITICAL: ASSIGN THE DICTIONARY EXACTLY AS SHOWN TO THE VARIABLE `result`.
         """
 
         with st.chat_message("assistant"):
-            with st.spinner("Decoding entities and generating analysis table..."):
+            with st.spinner("Extracting multi-dimensional data & compiling McKinsey insights..."):
                 try:
                     response = agent.chat(hacked_prompt)
-                    safe_df = extract_dataframe(response)
+                    payload = extract_payload(response)
                     
-                    if safe_df is not None:
-                        if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): AI filtered correctly, but 0 records found for the target in that timeframe.")
-                        else:
-                            st.markdown("**📊 Analysis Results:**")
-                            st.dataframe(safe_df, use_container_width=True, hide_index=True)
-                        st.session_state.messages.append({"role": "assistant", "content": safe_df})
+                    if isinstance(payload, dict) and payload.get('type') == 'advanced_dashboard':
+                        # 1. 渲染总结表
+                        st.markdown("**1️⃣ Performance by Destination Type (Total)**")
+                        summary_style = payload['summary'].style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}', 'ADR': '€ {:,.0f}'})
+                        st.dataframe(summary_style, use_container_width=True, hide_index=True)
+                        
+                        # 2. 渲染完美交互图表
+                        st.markdown("**2️⃣ Monthly Performance Trend**")
+                        st.plotly_chart(draw_executive_chart(payload['monthly']), use_container_width=True)
+                        
+                        # 3. 生成并渲染高管级洞察文字
+                        insight_text = generate_executive_summary(payload['target'], payload['cy_bv'], payload['py_bv'], payload['summary'])
+                        st.info(f"💡 **Executive Insight:**\n\n{insight_text}")
+                        
+                        st.session_state.messages.append({"role": "assistant", "content": f"✅ Dashboard for **{payload['target']}** generated successfully."})
+                        
+                    elif isinstance(payload, pd.DataFrame):
+                        # 降级模式：如果它死活只给了 DataFrame
+                        st.dataframe(payload, use_container_width=True)
+                        st.session_state.messages.append({"role": "assistant", "content": "Here is the data table."})
                     else:
-                        # 如果它还是没忍住输出了文字，也打印出来
-                        res_str = str(response)
-                        st.markdown(res_str)
-                        st.session_state.messages.append({"role": "assistant", "content": res_str})
-                    
-                    code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
+                        st.warning("⚠️ Data parsing failed. See code below.")
+                        
+                    code_executed = getattr(agent, 'last_code_executed', None)
                     if code_executed:
-                        with st.expander("🛠️ View AI Generated Code"):
-                            st.code(code_executed, language='python')
+                        with st.expander("🛠️ View Architecture Code"): st.code(code_executed, language='python')
                             
                 except Exception as e:
-                    st.error(f"Analysis Error: {e}")
+                    st.error(f"Execution Error: {e}")
 else:
     st.markdown("""
         <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
             <h1 style="font-size: 3rem; margin-bottom: 1rem; color: #1D263B;">Ψ Executive Strategy Hub</h1>
-            <p style="color: #6c757d; max-width: 550px; font-size: 1.1rem; line-height: 1.6;">
-                Upload your dataset to begin. Accurate YoY Dashboards and an Intelligent Data Analyst are ready for your inquiries.
-            </p>
+            <p style="color: #6c757d; max-width: 550px; font-size: 1.1rem; line-height: 1.6;">Upload data to unlock Plotly Dashboards and AI Executive Insights.</p>
         </div>
     """, unsafe_allow_html=True)
