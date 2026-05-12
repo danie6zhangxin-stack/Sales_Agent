@@ -158,7 +158,7 @@ if uploaded_file:
             }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # 🌟 模块 C：智能 AI 决策顾问 (防乱写变量版)
+    # 🌟 模块 C：智能 AI 决策顾问 (完全填空模式)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor (Deep Dive Table)")
@@ -171,36 +171,39 @@ if uploaded_file:
         if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
             history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极代码模板指令：强制要求顺序过滤，严禁换变量！
+    # 🌟 核心：强行注入完美的数据处理流代码
     custom_instr = f"""
-    You are a strictly programmatic code generator. Output VALID PYTHON CODE ONLY inside ```python and ```.
+    You are a code generator. Output VALID PYTHON CODE ONLY inside ```python and ```.
     
-    === CRITICAL CODE STRUCTURE (MUST FOLLOW EXACTLY) ===
-    You MUST chain your filters sequentially using ONE variable named `df_filtered`. NEVER use `.apply()` for row-wise text searching.
+    === EXACT CODE TEMPLATE (YOU MUST COPY AND ADAPT THIS) ===
+    DO NOT invent new logic. Replace TARGET_NAME and the month numbers as needed.
     
-    Example Structure to follow:
     ```python
-    # 1. Start with base dataframe
+    import numpy as np
+    
     df_filtered = dfs[0].copy()
     
-    # 2. Filter Time (Consumption by default)
+    # 1. Filter Year and Months
     df_filtered = df_filtered[df_filtered['Year'] == 2026]
     df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]
     
-    # 3. Filter Target (Agency names go in TA_Group)
+    # 2. Filter Agency
     df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('TARGET_NAME', case=False, na=False)]
     
-    # 4. Group and Calculate
-    df_grouped = df_filtered.groupby(['Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
-    df_grouped['ADR'] = df_grouped['BV'] / df_grouped['HN']
+    # 3. Group and Calculate
+    df_grouped = df_filtered.groupby(['Month_Num', 'Month', 'Dest_Type']).agg({{'BV': 'sum', 'HN': 'sum'}}).reset_index()
+    df_grouped['ADR'] = np.where(df_grouped['HN'] > 0, df_grouped['BV'] / df_grouped['HN'], 0)
+    
+    # 4. Sort correctly and drop the helper column
+    df_grouped = df_grouped.sort_values(['Month_Num', 'Dest_Type']).drop(columns=['Month_Num'])
     
     # 5. Output
     result = df_grouped
     ```
     
     === RULES ===
-    1. Do NOT assign dictionaries like `result = {{'type': 'dataframe', 'value': ...}}`. Directly assign the dataframe: `result = df_grouped`.
-    2. Agencies MUST be searched in `TA_Group` column using `str.contains()`.
+    1. Output code ONLY.
+    2. `result` MUST be assigned the dataframe `df_grouped` directly. DO NOT assign a dictionary.
     
     MEMORY:
     {history_context}
@@ -219,25 +222,22 @@ if uploaded_file:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
-        # 在发送给模型前，再次通过外挂重申
         hacked_prompt = f"""
-        {prompt}
+        User Question: {prompt}
         
-        [SYSTEM WARNING]:
-        1. Apply ALL filters to a single dataframe variable sequentially. Do NOT create `nj_xxy_data` and then filter `dfs[0]`.
-        2. DO NOT use `apply(lambda row: ...)`. Use `TA_Group`.
-        3. `result` MUST be assigned a DataFrame, not a dict.
+        [SYSTEM OVERRIDE]: 
+        Copy the code template from your instructions exactly. Replace 'TARGET_NAME' with the agency from the User Question. Do NOT use .apply(). Ensure you output code inside ```python and ```.
         """
 
         with st.chat_message("assistant"):
-            with st.spinner("Executing strictly structured sequential filtering..."):
+            with st.spinner("Compiling pre-validated analysis template..."):
                 try:
                     response = agent.chat(hacked_prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): Executed correctly using TA_Group and Month_Num, but 0 records found.")
+                            st.warning("⚠️ 查无数据 (Empty Table): Extracted successfully, but 0 records found for the target in that timeframe.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
