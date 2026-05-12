@@ -14,25 +14,22 @@ CSS_STYLE = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
     :root { 
-        --cm-blue: #1D263B;      /* 深海蓝 */
-        --cm-terracotta: #A64B35; /* 陶土红 */
-        --cm-beige: #F8F9FA;     /* 极简底色 */
+        --cm-blue: #1D263B;      
+        --cm-terracotta: #A64B35; 
+        --cm-beige: #F8F9FA;     
     }
     
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
     h1, h2, h3, h4 { font-family: 'Playfair Display', serif !important; color: var(--cm-blue); }
     
-    /* KPI 指标卡片 */
     div[data-testid="stMetric"] { 
         background-color: white; border-radius: 6px; padding: 15px 20px; 
         box-shadow: 0 2px 10px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta); 
     }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 28px; }
     
-    /* 数据表格美化 */
     .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); background-color: white; }
     
-    /* 聊天记录流 - 极致极简 */
     div[data-testid="stChatMessage"] { 
         background-color: transparent !important; 
         border: none !important; 
@@ -42,7 +39,6 @@ CSS_STYLE = """
     }
     div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
     
-    /* 聊天头像颜色统一 */
     div[data-testid="stChatMessageAvatarUser"], div[data-testid="stChatMessageAvatarAssistant"] { 
         background-color: var(--cm-blue) !important; color: white !important;
     }
@@ -168,22 +164,26 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 核心更新：明确它的身份是“写代码的”，彻底解决 NoCodeFoundError
+    # 🌟 终极强压指令：双向大写转换，彻底消灭 0 行数据 Bug
     custom_instr = f"""
     You are a Data Analyst for ClubMed writing Python code for PandasAI.
 
     === CRITICAL EXECUTION RULES ===
     1. YOU MUST OUTPUT VALID PYTHON CODE ENCLOSED IN ```python AND ```.
-    2. Do NOT generate markdown text tables directly. You are writing the code that calculates the result.
-    3. The final result of your code MUST evaluate to a Pandas DataFrame.
+    2. The dataframe is provided to you as `dfs[0]`. Assign the final result to `result`.
+    3. NEVER output conversational text. ONLY output the code block.
 
-    === BUSINESS LOGIC RULES ===
-    1. YEAR: Always filter by the requested year first (e.g., `df = df[df['Year'] == 2026]`).
-    2. TARGET MATCH: For targets like "NJ XXY", use EXACT case-insensitive match (e.g., `df = df[df['TA_Group'].str.upper() == 'NJ XXY']`).
-    3. MONTHS: Use `Month_Num` (1-12) for period filtering. For "Jan to May", use `df['Month_Num'].between(1, 5)`.
-    4. DIMENSIONS: Every deep dive MUST group by `Dest_Type`.
-    5. OUTPUT FORMAT: Group the data, calculate BV, HN, and ADR, then `.reset_index()`. Round to 2 decimals. Rename columns to be business-friendly.
-    6. NO PLOTTING: Do not generate charts.
+    === BULLETPROOF FILTERING RULES ===
+    1. YEAR: Create a new filtered df first: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`.
+    2. TARGET MATCH (CRITICAL): You MUST convert BOTH the column AND your search string to uppercase to avoid empty dataframes! 
+       Correct Example: `df_filtered = df_filtered[df_filtered['TA_Group'].str.upper() == 'NJ XXY'.upper()]`
+    3. MONTHS: Use `Month_Num` (1-12). For "Jan to May", use `df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]`. NEVER use string matching for months.
+
+    === OUTPUT FORMAT ===
+    1. Group `df_filtered` by `Dest_Type` (and `Month` if requested). Calculate sum of `BV` and `HN`. Then calculate `ADR` = `BV` / `HN`.
+    2. MUST call `.reset_index()` at the end so `result` is a flat dataframe. 
+    3. Rename columns cleanly (e.g., 'Month', 'Destination Type', 'Business Volume').
+    4. Round to 2 decimals. NO PLOTTING allowed.
     
     === MEMORY ===
     {history_context}
@@ -205,15 +205,18 @@ if uploaded_file:
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Writing analysis code and executing..."):
+            with st.spinner("Generating code and executing analysis..."):
                 try:
                     response = agent.chat(prompt)
-                    
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
-                        st.markdown("**📊 Analysis Results:**")
-                        st.dataframe(safe_df, use_container_width=True, hide_index=True)
+                        # 🌟 智能防御机制：如果是空表，直接标红提醒！
+                        if safe_df.empty:
+                            st.warning("⚠️ 查无数据 (Empty Table): The analysis executed successfully, but 0 records matched your filters. (Check if the Year, Month, or TA Group exists).")
+                        else:
+                            st.markdown("**📊 Analysis Results:**")
+                            st.dataframe(safe_df, use_container_width=True, hide_index=True)
                         st.session_state.messages.append({"role": "assistant", "content": safe_df})
                     else:
                         res_str = str(response)
