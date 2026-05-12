@@ -78,14 +78,23 @@ if uploaded_file:
         df['Year'] = pd.to_numeric(df['Year'], errors='coerce').fillna(0).astype(int)
 
     # ==========================================
-    # 🌟 模块 A & B：原生 Python Dashboard (防崩溃，100%准确)
+    # 🌟 模块 A & B：原生 Python Dashboard (动态多维筛选)
     # ==========================================
     with st.sidebar:
         st.markdown("### ⚙️ Dashboard Filters")
+        # 1. 年份筛选
         available_years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
         selected_year = st.selectbox("Select Consumption Year", available_years) if available_years else 2026
+        
+        # 2. 🔥 新增：动态市场筛选器 (自动抓取数据表中真实存在的市场名称)
+        available_markets = sorted([str(m) for m in df['Market'].unique() if str(m).strip() != '' and str(m).lower() != 'nan'])
+        # 尝试智能预选包含 China/HK 的选项，如果没有也不至于报错
+        default_markets = [m for m in available_markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
+        selected_markets = st.multiselect("Select Markets", available_markets, default=default_markets)
 
     st.markdown(f"### 📈 Executive Summary ({selected_year} vs {selected_year-1})")
+    
+    # 按照选定的年份过滤
     df_cy = df[df['Year'] == selected_year]
     df_py = df[df['Year'] == selected_year - 1]
 
@@ -99,22 +108,33 @@ if uploaded_file:
     c2.metric(f"Total HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
     c3.metric(f"Avg ADR", f"€ {cy_adr:,.2f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
 
-    st.markdown(f"#### 📊 China & HK Performance by Destination Type")
-    ch_hk_mask_cy = df_cy['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
-    ch_hk_mask_py = df_py['Market'].str.contains('China|Hong Kong|HK', case=False, na=False)
+    st.markdown(f"#### 📊 Performance by Destination Type ({selected_year})")
     
-    cy_target = df_cy[ch_hk_mask_cy].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-    py_target = df_py[ch_hk_mask_py].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
-    
-    dashboard_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{selected_year}', f'_{selected_year-1}')).fillna(0)
-    dashboard_df['BV_YoY(%)'] = np.where(dashboard_df[f'BV_{selected_year-1}'] > 0, (dashboard_df[f'BV_{selected_year}'] - dashboard_df[f'BV_{selected_year-1}']) / dashboard_df[f'BV_{selected_year-1}'] * 100, 0)
-    
-    display_cols = ['Market', 'Dest_Type', f'BV_{selected_year}', f'BV_{selected_year-1}', 'BV_YoY(%)']
-    if not dashboard_df.empty:
-        styled_dash = dashboard_df[display_cols].style.format({
-            f'BV_{selected_year}': '€ {:,.0f}', f'BV_{selected_year-1}': '€ {:,.0f}', 'BV_YoY(%)': '{:+.1f}%'
-        }).background_gradient(subset=['BV_YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15)
-        st.dataframe(styled_dash, use_container_width=True, hide_index=True)
+    # 🌟 修复关键：根据用户在下拉框中选择的真实市场名称过滤
+    if not selected_markets:
+        st.warning("⚠️ Please select at least one Market from the sidebar to view the breakdown.")
+    else:
+        df_cy_filtered = df_cy[df_cy['Market'].isin(selected_markets)]
+        df_py_filtered = df_py[df_py['Market'].isin(selected_markets)]
+        
+        cy_target = df_cy_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        py_target = df_py_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        
+        dashboard_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{selected_year}', f'_{selected_year-1}')).fillna(0)
+        
+        if not dashboard_df.empty:
+            dashboard_df['BV_YoY(%)'] = np.where(dashboard_df[f'BV_{selected_year-1}'] > 0, 
+                                                 (dashboard_df[f'BV_{selected_year}'] - dashboard_df[f'BV_{selected_year-1}']) / dashboard_df[f'BV_{selected_year-1}'] * 100, 0)
+            
+            display_cols = ['Market', 'Dest_Type', f'BV_{selected_year}', f'BV_{selected_year-1}', 'BV_YoY(%)']
+            styled_dash = dashboard_df[display_cols].style.format({
+                f'BV_{selected_year}': '€ {:,.0f}', f'BV_{selected_year-1}': '€ {:,.0f}', 'BV_YoY(%)': '{:+.1f}%'
+            }).background_gradient(subset=['BV_YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15)
+            
+            st.dataframe(styled_dash, use_container_width=True, hide_index=True)
+        else:
+            # 如果真的没有数据，优雅地提示，而不是显示一条空线
+            st.info("No destination data available for the selected Markets in this year.")
 
     # ==========================================
     # 🌟 模块 C：无 Bug 的动态记忆 AI 系统
@@ -125,11 +145,9 @@ if uploaded_file:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 动态组装历史记忆，不再依赖 PandasAI 的 Bug 缓存机制
     history_context = ""
     if len(st.session_state.messages) > 0:
         history_context = "\n\n=== RECENT CONVERSATION HISTORY ===\n"
-        # 取最近的3轮文字对话作为记忆
         for msg in st.session_state.messages[-4:]:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:300]}...\n"
@@ -147,10 +165,8 @@ if uploaded_file:
     {history_context}
     """
 
-    # 🌟 关键：每次提问都原地创建一个全新的满血 Agent，彻底避开线程崩溃！
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
-    # 智能渲染历史对话
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame): 
