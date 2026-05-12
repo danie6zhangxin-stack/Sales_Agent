@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-import numpy as np  # <--- 修复点 1：全局强行引入 numpy，防止 AI 找不到
+import numpy as np 
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg') # 强制离线渲染，防止云端崩溃
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
@@ -14,7 +14,6 @@ st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", p
 
 CSS_STYLE = """
 <style>
-    /* 引入高级字体 */
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
     
     :root {
@@ -27,24 +26,21 @@ CSS_STYLE = """
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
     h1, h2, h3 { font-family: 'Playfair Display', serif !important; color: var(--cm-blue); }
     
-    /* 核心指标卡片美化 */
     div[data-testid="metric-container"] {
         background-color: white; border-radius: 4px; padding: 15px 20px;
         box-shadow: 0 4px 15px rgba(0,0,0,0.02); border-top: 3px solid var(--cm-terracotta);
     }
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 32px; }
     
-    /* 透视表美化 */
     .stDataFrame { border: 1px solid #EAECEF; border-radius: 4px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); }
     
-    /* 商业风按键 */
     .stButton>button { 
         border-radius: 2px; background-color: white; color: var(--cm-blue); 
         border: 1px solid var(--cm-blue); padding: 0.5rem 1rem; font-weight: 600; width: 100%; transition: all 0.3s ease;
     }
     .stButton>button:hover { background-color: var(--cm-blue); color: white; border-color: var(--cm-blue); }
     
-    /* 聊天气泡与头像的高定视觉重塑 */
+    /* 聊天气泡高定重塑 */
     div[data-testid="stChatMessage"] { 
         background-color: transparent !important; 
         border: none !important; 
@@ -54,7 +50,6 @@ CSS_STYLE = """
         margin-bottom: 0 !important;
     }
     div[data-testid="stChatMessage"]:last-child { border-bottom: none !important; }
-    
     div[data-testid="stChatMessageAvatarUser"] { background-color: var(--cm-blue) !important; color: white !important;}
     div[data-testid="stChatMessageAvatarAssistant"] { background-color: var(--cm-blue) !important; color: white !important;}
     
@@ -67,7 +62,7 @@ st.markdown(CSS_STYLE, unsafe_allow_html=True)
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
-    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 请确保在后台配置了真实的 Key
+    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" 
 
 llm = ChatOpenAI(
     api_key=api_key, 
@@ -83,7 +78,7 @@ with st.sidebar:
     st.divider()
     st.caption("Strategic Decision Platform | Featuring BV, HN, ADR analysis & Deep Dive reporting.")
 
-# --- 4. 核心数据引擎 (财务级处理) ---
+# --- 4. 核心数据引擎 ---
 if uploaded_file:
     df = pd.read_csv(uploaded_file, low_memory=False)
     df.columns = [col.strip() for col in df.columns]
@@ -174,11 +169,16 @@ if uploaded_file:
        - Automatically fetch data for the SAME EXACT months in the previous year (Year - 1).
        - Show the Variance Amount and Variance %.
 
-    CRITICAL DATA RULES:
-    - ALWAYS include 'import numpy as np' and 'import pandas as pd' in your underlying python code to prevent NameError.
-    - ALWAYS check exact string matches for Month (e.g., 'June' instead of 'JUN' or '06').
-    - If user asks for 'Jan to May', sum the values for 'January', 'February', 'March', 'April', 'May'.
-    - Use Markdown formatting exclusively for your final output. DO NOT attempt to generate matplotlib charts.
+    CRITICAL EXECUTION RULES (MUST OBEY):
+    1. **MANDATORY PRE-FILTERING**: BEFORE performing ANY calculations, you MUST filter the dataframe based on the user's specific target. If the user asks for "NJ XXY", your python code MUST explicitly filter `df = df[df['TA_Group'] == 'NJ XXY']` first! NEVER calculate the total company data if a specific TA Group, Resort, or Market is requested.
+    2. **STRICT MARKDOWN TABLES**: When generating tables, you MUST use proper Markdown syntax with line breaks. 
+       Example:
+       | Metric | Value |
+       |---|---|
+       | BV | 100 |
+       DO NOT output flattened or unformatted text.
+    3. **IMPORTS & MATH**: ALWAYS include 'import numpy as np' and 'import pandas as pd'. 
+    4. **MONTH MATCHING**: If user asks for 'Jan to May', sum the values for exact strings: 'January', 'February', 'March', 'April', 'May'.
     """
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
@@ -196,7 +196,7 @@ if uploaded_file:
             st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing multi-dimensional deep dive..."):
+            with st.spinner("Applying filters and executing multi-dimensional deep dive..."):
                 try:
                     response = agent.chat(prompt)
                     if not isinstance(response, str):
