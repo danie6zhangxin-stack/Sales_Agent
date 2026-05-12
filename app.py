@@ -85,20 +85,19 @@ def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
                       legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'), yaxis=dict(visible=False))
     return fig
 
-# --- 🌟 AI 麦肯锡级洞察生成器 (专属推断原因版) ---
+# --- 🌟 AI 麦肯锡级洞察生成器 (已恢复上下文全量注入) ---
 def generate_pacing_insights(cy_data, py_data, context_desc):
     cy_bv = cy_data['BV'].sum() / 1000 
     py_bv = py_data['BV'].sum() / 1000
     pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0
     
-    # 🌟 强制 AI 像刚才一样输出深度商业原因
     sys_prompt = """You are a Senior Strategy Consultant at ClubMed. Analyze the variance between Current Year (CY) and Previous Year (PY) booking pacing. 
-    1. Detail the variance in k€ and %. 
-    2. Mention if the pace is 'accelerating' or 'lagging' and specify which Destination Types are driving the change.
-    3. CRITICAL: You MUST explicitly suggest POSSIBLE REASONS behind this variance (e.g., shifts in booking window, strategic pivots toward premium/sun resorts, baseline anomalies, campaign effects, or organic growth).
+    1. Acknowledge the specific filters active (e.g., Booking Window, Markets, Season).
+    2. Detail the variance in k€ and %. 
+    3. CRITICAL: Provide POSSIBLE REASONS driving this pacing shift (e.g., strategic pivot toward premium resorts, early booking campaigns, baseline anomalies).
     Write a 4-sentence boardroom-ready analysis."""
     
-    user_prompt = f"Context: {context_desc}\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed CY Data:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
+    user_prompt = f"UI Filters Context:\n{context_desc}\n\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed CY Breakdown:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
     
     try:
         resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
@@ -155,6 +154,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.error("Start Date must be before End Date.")
             st.stop()
 
+    # 🌟 统一过滤函数
     def apply_ui_filters(input_df, year_val, s_date, e_date):
         d = input_df[input_df['Year'] == year_val]
         d = d[(d['Sales_Date'].dt.date >= s_date) & (d['Sales_Date'].dt.date <= e_date)]
@@ -190,7 +190,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问 (提取数据 + 输出深度分析)
+    # 🌟 5. 智能 AI 顾问 (上下文满血复活)
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy Advisor")
@@ -204,9 +204,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Extracting data and drafting executive summary..."):
+            with st.spinner("Analyzing targeted pacing data..."):
                 
-                # 金箍：确保一号大脑绝对不说话
                 strict_instructions = """
                 You are a programmatic Python code generator. 
                 YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. 
@@ -215,26 +214,34 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 
                 agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instructions})
                 
+                # 告诉代码 AI：底层数据已经过滤过了，不要重复过滤！
                 hacked_prompt = f"""
                 User Question: {prompt}
                 
-                dfs[0] is CY data, dfs[1] is PY data.
+                NOTE: dfs[0] (CY data) and dfs[1] (PY data) are ALREADY filtered by the UI (Season, Dates, Markets, TAs).
                 
-                1. If the user mentions a specific target (like a Market, TA_Group, or Resort), perform an uppercase fuzzy search to filter both dfs[0] and dfs[1]. If not, use the entire dfs[0] and dfs[1].
-                2. ADD a new column 'Period' to distinguish them.
-                3. Concatenate them into a SINGLE dataframe and assign to `result`. DO NOT RETURN A DICT.
+                TASK:
+                1. If the user mentions a specific target (like a Market, TA_Group, or Resort), perform an uppercase fuzzy search on `Market`, `TA_Group`, and `Resort` columns to filter BOTH dfs[0] and dfs[1]. 
+                2. If the user asks a general question, just use the entire dfs[0] and dfs[1].
+                3. ADD a new column 'Period' to distinguish them.
+                4. Concatenate into a SINGLE dataframe assigned to `result`. DO NOT RETURN A DICT.
 
                 ```python
                 import pandas as pd
                 
-                clean_target = 'ENTITY_NAME_HERE'.replace(' ', '').upper() # ONLY EXTRACT IF USER MENTIONS A NAME
+                # 1. Decide if we need to filter further based on user question
+                target = 'EXTRACTED_NAME_IF_ANY'
                 
-                # Apply mask if name exists, otherwise just copy
-                mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_cy_filtered = dfs[0][mask_cy].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[0].copy()
-                
-                mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                df_py_filtered = dfs[1][mask_py].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[1].copy()
+                if target and target != 'EXTRACTED_NAME_IF_ANY':
+                    clean_target = target.replace(' ', '').upper()
+                    mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                    df_cy_filtered = dfs[0][mask_cy].copy()
+                    
+                    mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                    df_py_filtered = dfs[1][mask_py].copy()
+                else:
+                    df_cy_filtered = dfs[0].copy()
+                    df_py_filtered = dfs[1].copy()
                 
                 df_cy_filtered['Period'] = 'CY'
                 df_py_filtered['Period'] = 'PY'
@@ -261,8 +268,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                             
                             st.markdown("**📉 Strategy Insight:**")
                             
-                            # 二号大脑开始工作，输出你喜欢的那些推测文字！
-                            insights = generate_pacing_insights(ai_cy_df, ai_py_df, prompt)
+                            # 🌟 恢复全量上下文给文本 AI
+                            full_ui_context = f"User Question: {prompt} | Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'} | TAs: {', '.join(sel_ta) if sel_ta else 'All'}"
+                            
+                            insights = generate_pacing_insights(ai_cy_df, ai_py_df, full_ui_context)
                             st.info(f"💡 **Executive Report:**\n\n{insights}")
                             st.session_state.messages.append({"role": "assistant", "content": insights})
                         else:
