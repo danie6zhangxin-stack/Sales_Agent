@@ -78,12 +78,10 @@ def load_and_clean(file):
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
-    # 基础清洗
     for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if col in data.columns:
             data[col] = data[col].astype(str).str.strip()
     
-    # 财务与日期数字转换
     for col in ['BV', 'HN']:
         if col in data.columns:
             data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -96,6 +94,17 @@ def load_and_clean(file):
         
     return data
 
+# ==========================================
+# 🌟 核心提取器 (防崩溃必备)
+# ==========================================
+def extract_dataframe(resp):
+    if isinstance(resp, pd.DataFrame): return resp
+    if hasattr(resp, 'to_pandas'): return resp.to_pandas()
+    if hasattr(resp, 'dataframe'): return resp.dataframe
+    if hasattr(resp, '_df'): return resp._df
+    try: return pd.DataFrame(resp)
+    except: return None
+
 # --- 4. 业务逻辑与界面展示 ---
 with st.sidebar:
     st.markdown("<h2 style='color:#A64B35;'>ClubMed Ψ Hub</h2>", unsafe_allow_html=True)
@@ -105,7 +114,6 @@ with st.sidebar:
 if uploaded_file:
     df = load_and_clean(uploaded_file)
     
-    # 侧边栏动态控制面板
     with st.sidebar:
         st.markdown("### ⚙️ Global Controls")
         years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
@@ -115,7 +123,6 @@ if uploaded_file:
         def_markets = [m for m in markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
         sel_markets = st.multiselect("Active Markets (Dashboard)", markets, default=def_markets)
 
-    # 模块 A：原生 Dashboard (财务级准确)
     st.markdown(f"### 📈 Executive Performance ({sel_year} vs {sel_year-1})")
     df_cy = df[df['Year'] == sel_year]
     df_py = df[df['Year'] == sel_year - 1]
@@ -127,7 +134,6 @@ if uploaded_file:
     c2.metric("Total HN", f"{df_cy['HN'].sum():,.0f}")
     c3.metric("Avg ADR", f"€ {df_cy['BV'].sum()/df_cy['HN'].sum() if df_cy['HN'].sum()>0 else 0:,.2f}")
 
-    # 模块 B：市场透视表
     if sel_markets:
         st.markdown(f"#### 📊 Regional Drill-down by Destination Type")
         df_cy_filtered = df_cy[df_cy['Market'].isin(sel_markets)]
@@ -142,7 +148,6 @@ if uploaded_file:
                                         (dash_df[f'BV_{sel_year}'] - dash_df[f'BV_{sel_year-1}']) / dash_df[f'BV_{sel_year-1}'] * 100, 0)
             
             display_cols = ['Market', 'Dest_Type', f'BV_{sel_year}', f'BV_{sel_year-1}', 'YoY(%)']
-            # 🌟 修复点：year 笔误修正为 sel_year
             st.dataframe(dash_df[display_cols].style.format({
                 f'BV_{sel_year}': '€ {:,.0f}', f'BV_{sel_year-1}': '€ {:,.0f}', 'YoY(%)': '{:+.1f}%'
             }).background_gradient(subset=['YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15), use_container_width=True, hide_index=True)
@@ -156,7 +161,6 @@ if uploaded_file:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # 历史记忆注入
     history_context = ""
     if len(st.session_state.messages) > 0:
         history_context = "\n\n=== RECENT CONVERSATION ===\n"
@@ -164,19 +168,22 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
+    # 🌟 核心更新：明确它的身份是“写代码的”，彻底解决 NoCodeFoundError
     custom_instr = f"""
-    You are a Senior Data Analyst for ClubMed. Follow these rules:
+    You are a Data Analyst for ClubMed writing Python code for PandasAI.
 
-    === CORE FILTERING RULES ===
-    1. YEAR: Always filter by the requested year first (e.g., `df[df['Year'] == 2026]`).
-    2. TARGET MATCH: If asked for a target like "NJ XXY", match it exactly while allowing for any case (case-insensitive). Ensure you do not pick up partial matches like "NJI CIT".
-    3. MONTHS: Use the `Month_Num` column (integers 1-12) for period filtering. For "Jan to May", use `df['Month_Num'].between(1, 5)`.
+    === CRITICAL EXECUTION RULES ===
+    1. YOU MUST OUTPUT VALID PYTHON CODE ENCLOSED IN ```python AND ```.
+    2. Do NOT generate markdown text tables directly. You are writing the code that calculates the result.
+    3. The final result of your code MUST evaluate to a Pandas DataFrame.
 
-    === OUTPUT FORMAT ===
-    1. ALWAYS return a clean pd.DataFrame.
-    2. Round numbers to 2 decimal places and rename columns to professional titles (e.g., 'Business Volume').
-    3. Every deep dive MUST include a breakdown by `Dest_Type`.
-    4. NO PLOTTING.
+    === BUSINESS LOGIC RULES ===
+    1. YEAR: Always filter by the requested year first (e.g., `df = df[df['Year'] == 2026]`).
+    2. TARGET MATCH: For targets like "NJ XXY", use EXACT case-insensitive match (e.g., `df = df[df['TA_Group'].str.upper() == 'NJ XXY']`).
+    3. MONTHS: Use `Month_Num` (1-12) for period filtering. For "Jan to May", use `df['Month_Num'].between(1, 5)`.
+    4. DIMENSIONS: Every deep dive MUST group by `Dest_Type`.
+    5. OUTPUT FORMAT: Group the data, calculate BV, HN, and ADR, then `.reset_index()`. Round to 2 decimals. Rename columns to be business-friendly.
+    6. NO PLOTTING: Do not generate charts.
     
     === MEMORY ===
     {history_context}
@@ -184,7 +191,6 @@ if uploaded_file:
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
-    # 渲染历史记录
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame): 
@@ -199,15 +205,16 @@ if uploaded_file:
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Generating precise business data..."):
+            with st.spinner("Writing analysis code and executing..."):
                 try:
                     response = agent.chat(prompt)
                     
-                    if isinstance(response, pd.DataFrame) or type(response).__name__ == 'SmartDataframe':
-                        if type(response).__name__ == 'SmartDataframe': response = response.dataframe
+                    safe_df = extract_dataframe(response)
+                    
+                    if safe_df is not None:
                         st.markdown("**📊 Analysis Results:**")
-                        st.dataframe(response, use_container_width=True, hide_index=True)
-                        st.session_state.messages.append({"role": "assistant", "content": response})
+                        st.dataframe(safe_df, use_container_width=True, hide_index=True)
+                        st.session_state.messages.append({"role": "assistant", "content": safe_df})
                     else:
                         res_str = str(response)
                         st.markdown(res_str)
