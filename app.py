@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np 
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
-from langchain.schema import SystemMessage, HumanMessage
+# 🌟 修复点：更新为 LangChain 的最新核心组件路径
+from langchain_core.messages import SystemMessage, HumanMessage
 import plotly.graph_objects as go
 import os
 
@@ -94,7 +95,7 @@ def generate_executive_summary(target, cy_bv, py_bv, summary_df):
     try:
         resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
         return resp.content
-    except:
+    except Exception as e:
         return f"The entity generated €{cy_bv:,.0f} in the current period, representing a {pct:+.1f}% YoY change."
 
 # ==========================================
@@ -140,7 +141,6 @@ if uploaded_file:
 
     agent = Agent(df, config={"llm": llm, "custom_instructions": "You generate strictly valid Python code.", "save_charts": False, "enable_cache": False})
 
-    # 渲染历史
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], str): st.markdown(m["content"])
@@ -149,7 +149,6 @@ if uploaded_file:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
-        # 🌟 超神级 Payload 模板：强行提取三个维度的数据
         hacked_prompt = f"""
         User Question: {prompt}
         
@@ -198,23 +197,19 @@ if uploaded_file:
                     payload = extract_payload(response)
                     
                     if isinstance(payload, dict) and payload.get('type') == 'advanced_dashboard':
-                        # 1. 渲染总结表
                         st.markdown("**1️⃣ Performance by Destination Type (Total)**")
                         summary_style = payload['summary'].style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}', 'ADR': '€ {:,.0f}'})
                         st.dataframe(summary_style, use_container_width=True, hide_index=True)
                         
-                        # 2. 渲染完美交互图表
                         st.markdown("**2️⃣ Monthly Performance Trend**")
                         st.plotly_chart(draw_executive_chart(payload['monthly']), use_container_width=True)
                         
-                        # 3. 生成并渲染高管级洞察文字
                         insight_text = generate_executive_summary(payload['target'], payload['cy_bv'], payload['py_bv'], payload['summary'])
                         st.info(f"💡 **Executive Insight:**\n\n{insight_text}")
                         
                         st.session_state.messages.append({"role": "assistant", "content": f"✅ Dashboard for **{payload['target']}** generated successfully."})
                         
                     elif isinstance(payload, pd.DataFrame):
-                        # 降级模式：如果它死活只给了 DataFrame
                         st.dataframe(payload, use_container_width=True)
                         st.session_state.messages.append({"role": "assistant", "content": "Here is the data table."})
                     else:
