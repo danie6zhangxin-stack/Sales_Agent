@@ -164,26 +164,27 @@ if uploaded_file:
             if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
                 history_context += f"{msg['role'].upper()}: {msg['content'][:200]}...\n"
 
-    # 🌟 终极强压指令：双向大写转换，彻底消灭 0 行数据 Bug
+    # 🌟 终极防空表指令：强制使用精准包含（str.contains）
     custom_instr = f"""
-    You are a Data Analyst for ClubMed writing Python code for PandasAI.
+    You are a Data Analyst writing Python code for PandasAI.
 
     === CRITICAL EXECUTION RULES ===
-    1. YOU MUST OUTPUT VALID PYTHON CODE ENCLOSED IN ```python AND ```.
-    2. The dataframe is provided to you as `dfs[0]`. Assign the final result to `result`.
-    3. NEVER output conversational text. ONLY output the code block.
+    1. Output VALID PYTHON CODE ONLY inside ```python and ```.
+    2. The dataframe is `dfs[0]`. Assign final result to `result`.
 
     === BULLETPROOF FILTERING RULES ===
-    1. YEAR: Create a new filtered df first: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`.
-    2. TARGET MATCH (CRITICAL): You MUST convert BOTH the column AND your search string to uppercase to avoid empty dataframes! 
-       Correct Example: `df_filtered = df_filtered[df_filtered['TA_Group'].str.upper() == 'NJ XXY'.upper()]`
-    3. MONTHS: Use `Month_Num` (1-12). For "Jan to May", use `df_filtered = df_filtered[df_filtered['Month_Num'].between(1, 5)]`. NEVER use string matching for months.
+    1. YEAR: `df_filtered = dfs[0][dfs[0]['Year'] == 2026]`
+    2. TARGET MATCH (CRUCIAL): The agency name might have suffixes or trailing spaces. 
+       You MUST use `.str.contains()` with the FULL EXACT phrase the user asked for.
+       CORRECT: `df_filtered = df_filtered[df_filtered['TA_Group'].str.contains('NJ XXY', case=False, na=False)]`
+       WRONG: `== 'NJ XXY'` (Will result in Empty Table due to suffixes)
+       WRONG: `.str.contains('NJ')` (Will mistakenly include other agencies like NJI CIT)
+    3. MONTHS: Use `Month_Num` (1-12). For "Jan to May", use `df_filtered[df_filtered['Month_Num'].between(1, 5)]`.
 
     === OUTPUT FORMAT ===
-    1. Group `df_filtered` by `Dest_Type` (and `Month` if requested). Calculate sum of `BV` and `HN`. Then calculate `ADR` = `BV` / `HN`.
-    2. MUST call `.reset_index()` at the end so `result` is a flat dataframe. 
-    3. Rename columns cleanly (e.g., 'Month', 'Destination Type', 'Business Volume').
-    4. Round to 2 decimals. NO PLOTTING allowed.
+    1. Group `df_filtered` by `Month` AND `Dest_Type` (if asked for breakdown).
+    2. Sum `BV` and `HN`. Calculate `ADR` = `BV` / `HN`.
+    3. Call `.reset_index()`. Round to 2 decimals. NO PLOTS.
     
     === MEMORY ===
     {history_context}
@@ -195,25 +196,22 @@ if uploaded_file:
         with st.chat_message(m["role"]):
             if isinstance(m["content"], pd.DataFrame): 
                 st.dataframe(m["content"], use_container_width=True, hide_index=True)
-            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
-                st.image(m["content"])
             else: 
                 st.markdown(m["content"])
 
-    if prompt := st.chat_input("Analyze NJ XXY's performance from Jan to May 2026."):
+    if prompt := st.chat_input("Show me the monthly BV, HN, and ADR for NJ XXY from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Generating code and executing analysis..."):
+            with st.spinner("Executing intelligent fuzzy-matching code..."):
                 try:
                     response = agent.chat(prompt)
                     safe_df = extract_dataframe(response)
                     
                     if safe_df is not None:
-                        # 🌟 智能防御机制：如果是空表，直接标红提醒！
                         if safe_df.empty:
-                            st.warning("⚠️ 查无数据 (Empty Table): The analysis executed successfully, but 0 records matched your filters. (Check if the Year, Month, or TA Group exists).")
+                            st.warning("⚠️ 查无数据 (Empty Table): AI successfully ran the code, but 0 records matched.")
                         else:
                             st.markdown("**📊 Analysis Results:**")
                             st.dataframe(safe_df, use_container_width=True, hide_index=True)
@@ -222,6 +220,13 @@ if uploaded_file:
                         res_str = str(response)
                         st.markdown(res_str)
                         st.session_state.messages.append({"role": "assistant", "content": res_str})
+                    
+                    # 🌟 全新透视镜机制：让用户查看底层运行的代码
+                    code_executed = getattr(agent, 'last_code_executed', getattr(agent, 'last_code_generated', None))
+                    if code_executed:
+                        with st.expander("🛠️ View AI Generated Code (For Debugging)"):
+                            st.code(code_executed, language='python')
+                            
                 except Exception as e:
                     st.error(f"Analysis Error: {e}")
 else:
