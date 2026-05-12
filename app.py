@@ -4,9 +4,7 @@ import numpy as np
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 import matplotlib
-matplotlib.use('Agg') # 强制离线渲染，防止云端崩溃
-import matplotlib.pyplot as plt
-import seaborn as sns
+matplotlib.use('Agg') # 强制离线渲染
 import os
 
 # --- 1. 高端商业极简风 UI 配置 (McKinsey Standard) ---
@@ -50,7 +48,7 @@ st.markdown(CSS_STYLE, unsafe_allow_html=True)
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
-    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # 填入你的真实Key
+    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 填入你的真实Key
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
@@ -78,7 +76,7 @@ if uploaded_file:
     }
     df.rename(columns=col_mapping, inplace=True, errors='ignore')
 
-    # 🌟 修复关键 1：强制清理隐藏空格（解决匹配失败问题）
+    # 强制清理隐藏空格（彻底解决精确匹配失败的元凶）
     for c in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip()
@@ -150,36 +148,51 @@ if uploaded_file:
 
     === CRITICAL RULES ===
     1. EXPLICIT YEAR FILTER: If user asks for 2026, YOU MUST filter `df = df[df['Year'] == 2026]` in your code.
-    2. EXACT MATCH: If user asks for "NJ XXY", you MUST use `df = df[df['TA_Group'] == 'NJ XXY']`.
-    3. MANDATORY DEST_TYPE: Every analysis MUST include a breakdown by `Dest_Type`.
-    4. NO UNARYOP: Never use the '~' operator. Use '!= False' or '!= True' instead.
-    5. DATATYPE: Cast all numerical results to String (e.g. `result = str(val)`).
-    6. MEMORY: Always remember the TA_Group or Resort from the previous question.
+    2. EXACT MATCH: If user asks for "NJ XXY", you MUST use EXACT matching `df = df[df['TA_Group'] == 'NJ XXY']`. DO NOT use str.contains()!
+    3. MANDATORY DEST_TYPE: Every analysis MUST include a Markdown table breakdown by `Dest_Type`.
+    4. NO PLOTTING (CRITICAL): NEVER generate charts, plots, or use matplotlib/seaborn. Output MUST be pure text and Markdown tables. 
+    5. NO UNARYOP: Never use the '~' operator. Use '!= False' or '!= True' instead.
+    6. DATATYPE: Cast all numerical results to String (e.g. `result = str(val)`).
+    7. IMPORTS: Always include 'import numpy as np' and 'import pandas as pd'.
     """
 
     if "agent" not in st.session_state:
+        # save_charts 必须为 False
         st.session_state.agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": True})
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # 智能渲染历史对话
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
-            if isinstance(m["content"], pd.DataFrame): st.dataframe(m["content"], use_container_width=True)
-            else: st.markdown(m["content"])
+            if isinstance(m["content"], pd.DataFrame): 
+                st.dataframe(m["content"], use_container_width=True)
+            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
+                st.image(m["content"])
+            else: 
+                st.markdown(m["content"])
 
     if prompt := st.chat_input("E.g., Deep dive into NJ XXY performance from Jan to May 2026."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Applying exact filters and calculating YoY..."):
+            with st.spinner("Applying exact filters and executing deep dive..."):
                 try:
                     response = st.session_state.agent.chat(prompt)
                     
+                    # 🌟 智能排版与路径拦截器
                     if isinstance(response, pd.DataFrame):
-                        st.markdown("**📊 Performance Data:**")
+                        st.markdown("**📊 Data Table Breakdown:**")
                         st.dataframe(response, use_container_width=True)
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                    elif isinstance(response, str) and response.endswith(".png"):
+                        # 如果 AI 不听话非要画图，我们拦截路径并展示图片
+                        if os.path.exists(response):
+                            st.image(response)
+                        else:
+                            st.warning(f"AI generated a chart path, but file not found: {response}")
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     else:
                         response_str = str(response)
@@ -190,9 +203,9 @@ if uploaded_file:
 else:
     st.markdown("""
         <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-            <h1 style="font-size: 3rem; margin-bottom: 1rem; color: #1D263B;">Ψ Executive Intelligence</h1>
-            <p style="color: #6c757d; max-width: 550px; font-size: 1.1rem; line-height: 1.6;">
-                Ready for the boardroom. Upload your data to activate 100% accurate YoY Dashboards, Market Pivots, and a Strategic AI with complete memory.
+            <h1 style="font-size: 3.5rem; margin-bottom: 1rem; color: #1D263B;">Ψ Executive Intelligence</h1>
+            <p style="color: #6c757d; max-width: 600px; font-size: 1.1rem; line-height: 1.6;">
+                Ready for the boardroom. Upload your data to activate 100% accurate YoY Dashboards, Market/Dest_Type Pivots, and a Strategic AI with complete memory.
             </p>
         </div>
     """, unsafe_allow_html=True)
