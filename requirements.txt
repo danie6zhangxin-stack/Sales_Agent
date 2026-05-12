@@ -5,6 +5,4 @@ pandasai==2.1.0
 langchain-openai
 matplotlib
 seaborn
-pyyaml
-pydantic
-Astor
+plotly
