@@ -7,7 +7,7 @@ import matplotlib
 matplotlib.use('Agg') # 强制离线渲染
 import os
 
-# --- 1. 高端商业视觉配置 (McKinsey x ClubMed Theme) ---
+# --- 1. 高端商业极简风 UI 配置 (McKinsey x ClubMed Theme) ---
 st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", page_icon="Ψ")
 
 CSS_STYLE = """
@@ -16,7 +16,7 @@ CSS_STYLE = """
     :root { 
         --cm-blue: #1D263B;      /* 深海蓝 */
         --cm-terracotta: #A64B35; /* 陶土红 */
-        --cm-beige: #F8F9FA;     
+        --cm-beige: #F8F9FA;     /* 极简底色 */
     }
     
     .main { background-color: var(--cm-beige); font-family: 'Inter', sans-serif; }
@@ -30,7 +30,7 @@ CSS_STYLE = """
     div[data-testid="stMetricValue"] { color: var(--cm-blue); font-weight: 600; font-size: 28px; }
     
     /* 数据表格美化 */
-    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; background-color: white; }
+    .stDataFrame { border: 1px solid #EAECEF; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.01); background-color: white; }
     
     /* 聊天记录 - 极致极简流 */
     div[data-testid="stChatMessage"] { 
@@ -56,11 +56,11 @@ st.markdown(CSS_STYLE, unsafe_allow_html=True)
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
-    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 生产环境请确保配置了 Secrets
+    api_key = "sk-xxxxxxxxxxxxxxxxxxxxxxxx" # ⚠️ 填入你的真实Key
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 核心数据清洗 (硬核去重与格式化) ---
+# --- 3. 核心数据清洗引擎 ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
@@ -77,7 +77,7 @@ def load_and_clean(file):
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
-    # 强制清理隐藏空格（解决 NJ XXY 匹配失败的元凶）
+    # 强制清理隐藏空格
     for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if col in data.columns:
             data[col] = data[col].astype(str).str.strip()
@@ -106,7 +106,7 @@ if uploaded_file:
         years = sorted([y for y in df['Year'].unique() if y > 2000], reverse=True)
         sel_year = st.selectbox("Select Year", years) if years else 2026
         
-        markets = sorted([str(m) for m in df['Market'].unique() if str(m) != 'nan'])
+        markets = sorted([str(m) for m in df['Market'].unique() if str(m).strip() != '' and str(m).lower() != 'nan'])
         def_markets = [m for m in markets if any(k in m.lower() for k in ['china', 'hong kong', 'hk', 'cn'])]
         sel_markets = st.multiselect("Select Markets", markets, default=def_markets)
 
@@ -125,55 +125,91 @@ if uploaded_file:
     # 模块 B：市场与目的地拆解
     if sel_markets:
         st.markdown(f"#### 📊 Performance by Destination Type (Selected Markets)")
-        dash_df = df_cy[df_cy['Market'].isin(sel_markets)].groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        df_cy_filtered = df_cy[df_cy['Market'].isin(sel_markets)]
+        df_py_filtered = df_py[df_py['Market'].isin(sel_markets)]
+        
+        cy_target = df_cy_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        py_target = df_py_filtered.groupby(['Market', 'Dest_Type'])[['BV', 'HN']].sum().reset_index()
+        
+        dash_df = pd.merge(cy_target, py_target, on=['Market', 'Dest_Type'], how='outer', suffixes=(f'_{sel_year}', f'_{sel_year-1}')).fillna(0)
         if not dash_df.empty:
-            st.dataframe(dash_df.style.format({'BV': '€ {:,.0f}', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
+            dash_df['BV_YoY(%)'] = np.where(dash_df[f'BV_{sel_year-1}'] > 0, 
+                                           (dash_df[f'BV_{sel_year}'] - dash_df[f'BV_{sel_year-1}']) / dash_df[f'BV_{sel_year-1}'] * 100, 0)
+            
+            display_cols = ['Market', 'Dest_Type', f'BV_{sel_year}', f'BV_{sel_year-1}', 'BV_YoY(%)']
+            styled_dash = dash_df[display_cols].style.format({
+                f'BV_{sel_year}': '€ {:,.0f}', f'BV_{sel_year-1}': '€ {:,.0f}', 'BV_YoY(%)': '{:+.1f}%'
+            }).background_gradient(subset=['BV_YoY(%)'], cmap='RdYlGn', vmin=-15, vmax=15)
+            
+            st.dataframe(styled_dash, use_container_width=True, hide_index=True)
+        else:
+            st.info("No destination data available for the selected Markets in this year.")
 
-    # 模块 C：智能 AI 决策顾问 (带记忆注入)
+    # ==========================================
+    # 🌟 模块 C：深度分析生成器 (强制输出原生 DataFrame)
+    # ==========================================
     st.divider()
-    st.markdown("### 🤖 Strategy Advisor (Deep Dive)")
+    st.markdown("### 🤖 Strategy Advisor (Deep Dive Table Generator)")
     
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
     # 提取历史对话作为记忆
     history_context = ""
-    for msg in st.session_state.messages[-4:]:
-        if isinstance(msg["content"], str):
-            history_context += f"{msg['role']}: {msg['content'][:200]}\n"
+    if len(st.session_state.messages) > 0:
+        history_context = "\n\n=== RECENT CONVERSATION HISTORY ===\n"
+        for msg in st.session_state.messages[-4:]:
+            if isinstance(msg["content"], str) and not msg["content"].endswith(".png"):
+                history_context += f"{msg['role'].upper()}: {msg['content'][:300]}...\n"
 
-    # 🌟 核心指令集：彻底解决数据错误与排版乱码
+    # 🌟 终极防呆指令集：绝对匹配月份 + 强制返回数据表
     custom_instr = f"""
-    You are a McKinsey Consultant. Rules:
-    1. EXACT MATCH (CRITICAL): If user asks for 'NJ XXY', you MUST use `df[df['TA_Group'] == 'NJ XXY']`. NEVER use fuzzy search.
-    2. YEAR FILTER: Always apply `df[df['Year'] == 2026]` (or the requested year) first.
-    3. DEST_TYPE DRILL-DOWN: Every analysis MUST include a breakdown by `Dest_Type` (Destination type Asia).
-    4. OUTPUT FORMAT: ALWAYS return a clean pd.DataFrame. If you calculate a single number, turn it into a 1-row DataFrame. Round to 2 decimals.
-    5. NO PLOTS: Do not use matplotlib.
-    6. NO UNARYOP: Do not use '~'. Use '!= True' or '!= False'.
-    7. RECENT CONTEXT: {history_context}
+    You are a Senior Data Analyst for ClubMed. Follow these STRICT rules:
+
+    === CORE FILTERING RULES ===
+    1. EXPLICIT YEAR FILTER: Always filter by the requested year first (e.g., `df = df[df['Year'] == 2026]`).
+    2. EXACT MATCH: If asked for a target like "NJ XXY", you MUST use EXACT matching `df = df[df['TA_Group'] == 'NJ XXY']`. DO NOT use str.contains()!
+    3. MONTH FORMAT (CRITICAL): The `Month` column contains FULL capitalized names (e.g., 'January', 'February'). NEVER use abbreviations like 'Jan' or 'Feb' for filtering. If user says 'Jan to May', you MUST use `df['Month'].isin(['January', 'February', 'March', 'April', 'May'])`.
+
+    === CRITICAL OUTPUT FORMAT (MUST OBEY) ===
+    1. YOU MUST ALWAYS RETURN A PANDAS DATAFRAME (`pd.DataFrame`). 
+    2. NEVER return raw text, strings, dictionaries, or raw Series. 
+    3. If asked for a deep dive (e.g. Month and Dest_Type), group the data, calculate BV, HN, and ADR, and convert the result into a clean, flat DataFrame using `.reset_index()`.
+    4. Rename columns to be business-friendly (e.g., 'Month', 'Destination Type', 'Business Volume').
+    5. Round numerical values to 2 decimal places.
+    6. NO PLOTTING: Never use matplotlib or seaborn.
+    
+    === CONTEXT ===
+    Use this recent conversation context if the user asks a follow-up question:
+    {history_context}
     """
 
-    # 🌟 关键：原地创建 Agent 避开缓存 Bug
+    # 原地创建 Agent 避开缓存 Bug
     agent = Agent(df, config={"llm": llm, "custom_instructions": custom_instr, "save_charts": False, "enable_cache": False})
 
+    # 渲染历史
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
-            if isinstance(m["content"], pd.DataFrame): st.dataframe(m["content"], use_container_width=True, hide_index=True)
-            else: st.markdown(m["content"])
+            if isinstance(m["content"], pd.DataFrame): 
+                st.dataframe(m["content"], use_container_width=True, hide_index=True)
+            elif isinstance(m["content"], str) and m["content"].endswith(".png"):
+                st.image(m["content"])
+            else: 
+                st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Analyze NJ XXY monthly BV and Dest_Type breakdown for Jan-May 2026."):
+    if prompt := st.chat_input("E.g., Show me NJ XXY's BV and HN from Jan to May 2026 broken down by Month and Dest_Type."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Executing precise deep dive..."):
+            with st.spinner("Generating precise multi-dimensional data table..."):
                 try:
                     response = agent.chat(prompt)
                     
+                    # 强行兜底渲染为高级交互表格
                     if isinstance(response, pd.DataFrame) or type(response).__name__ == 'SmartDataframe':
                         if type(response).__name__ == 'SmartDataframe': response = response.dataframe
-                        st.markdown("**📊 Deep Dive Results:**")
+                        st.markdown("**📊 Deep Dive Analysis Table:**")
                         st.dataframe(response, use_container_width=True, hide_index=True)
                         st.session_state.messages.append({"role": "assistant", "content": response})
                     else:
@@ -183,4 +219,11 @@ if uploaded_file:
                 except Exception as e:
                     st.error(f"Analysis Error: {e}")
 else:
-    st.markdown("<h1 style='text-align:center; padding-top:150px; opacity:0.2;'>Ψ Executive Hub</h1>", unsafe_allow_html=True)
+    st.markdown("""
+        <div style="height: 60vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+            <h1 style="font-size: 3.5rem; margin-bottom: 1rem; color: #1D263B;">Ψ Executive Hub</h1>
+            <p style="color: #6c757d; max-width: 600px; font-size: 1.1rem; line-height: 1.6;">
+                Ready for the boardroom. Upload your data to activate 100% accurate Dashboards and an AI Data Analyst that delivers perfect tables.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
