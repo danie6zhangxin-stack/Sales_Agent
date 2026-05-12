@@ -62,7 +62,7 @@ def load_and_clean(file):
         data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     return data
 
-# --- 🌟 高级画图模块 ---
+# --- 🌟 高级画图模块 (主看板) ---
 def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[['BV']].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[['BV']].sum().reset_index()
@@ -85,27 +85,49 @@ def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
                       legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'), yaxis=dict(visible=False))
     return fig
 
-# --- 🌟 AI 麦肯锡级洞察生成器 (已恢复上下文全量注入) ---
-def generate_pacing_insights(cy_data, py_data, context_desc):
+# --- 🌟 横向细分图表 (Resort / TA) ---
+def draw_horizontal_bar(data_df, group_col, title, color):
+    g_df = data_df.groupby(group_col)['BV'].sum().reset_index().sort_values('BV', ascending=True).tail(5) # Top 5
+    g_df['BV'] = g_df['BV'] / 1000
+    
+    fig = go.Figure(go.Bar(
+        x=g_df['BV'], y=g_df[group_col], orientation='h', marker_color=color,
+        text=g_df['BV'], texttemplate='<b>%{text:,.0f}k</b>', textposition='inside', textfont=dict(size=12, color='white')
+    ))
+    fig.update_layout(
+        title=dict(text=title, font=dict(family="Playfair Display", size=16)),
+        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=0, l=0, r=0),
+        xaxis=dict(visible=False), yaxis=dict(showgrid=False)
+    )
+    return fig
+
+# --- 🌟 AI 宏观经济战略洞察生成器 ---
+def generate_macro_insights(cy_data, py_data, context_desc):
     cy_bv = cy_data['BV'].sum() / 1000 
     py_bv = py_data['BV'].sum() / 1000
     pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0
     
-    sys_prompt = """You are a Senior Strategy Consultant at ClubMed. Analyze the variance between Current Year (CY) and Previous Year (PY) booking pacing. 
-    1. Acknowledge the specific filters active (e.g., Booking Window, Markets, Season).
-    2. Detail the variance in k€ and %. 
-    3. CRITICAL: Provide POSSIBLE REASONS driving this pacing shift (e.g., strategic pivot toward premium resorts, early booking campaigns, baseline anomalies).
-    Write a 4-sentence boardroom-ready analysis."""
+    top_resorts = cy_data.groupby('Resort')['BV'].sum().nlargest(3).to_dict()
+    top_tas = cy_data.groupby('TA_Group')['BV'].sum().nlargest(3).to_dict()
     
-    user_prompt = f"UI Filters Context:\n{context_desc}\n\nCY Total BV: {cy_bv:,.0f} k€\nPY Total BV: {py_bv:,.0f} k€\nVariance: {pct:+.1f}%\n\nDetailed CY Breakdown:\n{cy_data.groupby('Dest_Type')[['BV','HN']].sum().to_string()}"
+    sys_prompt = """You are the Chief Strategy Officer and Macro-Economist for ClubMed. 
+    Analyze the YoY pacing variance.
+    
+    CRITICAL STRUCTURE FOR YOUR RESPONSE:
+    1. **Macro-Environmental Shift**: Explain the variance NOT just with numbers, but by hypothesizing plausible MACRO factors relevant to the 2025/2026 global landscape. For example: How might shifting geopolitical tensions, post-election economic policies, visa-free travel policies, aviation capacity recovery, or currency fluctuations be driving this specific trend? 
+    2. **Strategic Pivot**: Explain how these macro events are forcing a shift in consumer behavior (e.g., flight to safety, luxury revenge travel, or booking window changes).
+    3. **Micro-Execution**: Briefly tie the macro theory to the top performing Resorts and TAs provided in the data.
+    
+    Do NOT just list numbers. Tell a compelling, boardroom-ready story about the global economy's impact on our bookings."""
+    
+    user_prompt = f"UI Context: {context_desc}\nCY Total: {cy_bv:,.0f} k€ | PY Total: {py_bv:,.0f} k€ | Variance: {pct:+.1f}%\n\nTop Resorts CY: {top_resorts}\nTop TAs CY: {top_tas}"
     
     try:
         resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
         return resp.content
     except:
-        return f"Booking pace is currently showing a {pct:+.1f}% variance compared to the same period last year."
+        return "Unable to generate macro insights at this time."
 
-# --- DataFrame 提取器 ---
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
     if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame): return resp['value']
@@ -154,7 +176,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.error("Start Date must be before End Date.")
             st.stop()
 
-    # 🌟 统一过滤函数
     def apply_ui_filters(input_df, year_val, s_date, e_date):
         d = input_df[input_df['Year'] == year_val]
         d = d[(d['Sales_Date'].dt.date >= s_date) & (d['Sales_Date'].dt.date <= e_date)]
@@ -190,62 +211,44 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问 (上下文满血复活)
+    # 🌟 5. 智能 AI 顾问 (宏观战略版)
     # ==========================================
     st.divider()
-    st.markdown("### 🤖 Strategy Advisor")
+    st.markdown("### 🤖 Strategy & Macro Advisor")
     if "messages" not in st.session_state: st.session_state.messages = []
     
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
-    if prompt := st.chat_input("E.g., Analyze the variance for NJ XXY"):
+    if prompt := st.chat_input("E.g., What are the macro factors driving the variance for NJ XXY?"):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Analyzing targeted pacing data..."):
+            with st.spinner("Compiling global macroeconomic data and drilling down..."):
                 
-                strict_instructions = """
-                You are a programmatic Python code generator. 
-                YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. 
-                DO NOT OUTPUT ANY CONVERSATIONAL TEXT OR EXPLANATION.
-                """
-                
+                strict_instructions = """YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."""
                 agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instructions})
                 
-                # 告诉代码 AI：底层数据已经过滤过了，不要重复过滤！
                 hacked_prompt = f"""
                 User Question: {prompt}
                 
-                NOTE: dfs[0] (CY data) and dfs[1] (PY data) are ALREADY filtered by the UI (Season, Dates, Markets, TAs).
-                
-                TASK:
-                1. If the user mentions a specific target (like a Market, TA_Group, or Resort), perform an uppercase fuzzy search on `Market`, `TA_Group`, and `Resort` columns to filter BOTH dfs[0] and dfs[1]. 
-                2. If the user asks a general question, just use the entire dfs[0] and dfs[1].
-                3. ADD a new column 'Period' to distinguish them.
-                4. Concatenate into a SINGLE dataframe assigned to `result`. DO NOT RETURN A DICT.
+                1. Fuzzy search Market, TA_Group, or Resort for any named entity in the question.
+                2. ADD column 'Period'. Concatenate into a SINGLE dataframe `result`.
 
                 ```python
                 import pandas as pd
                 
-                # 1. Decide if we need to filter further based on user question
-                target = 'EXTRACTED_NAME_IF_ANY'
+                clean_target = 'ENTITY_NAME_HERE'.replace(' ', '').upper()
                 
-                if target and target != 'EXTRACTED_NAME_IF_ANY':
-                    clean_target = target.replace(' ', '').upper()
-                    mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                    df_cy_filtered = dfs[0][mask_cy].copy()
-                    
-                    mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                    df_py_filtered = dfs[1][mask_py].copy()
-                else:
-                    df_cy_filtered = dfs[0].copy()
-                    df_py_filtered = dfs[1].copy()
+                mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                df_cy_filtered = dfs[0][mask_cy].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[0].copy()
+                
+                mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
+                df_py_filtered = dfs[1][mask_py].copy() if 'ENTITY_NAME_HERE' != 'ENTITY_NAME_HERE' else dfs[1].copy()
                 
                 df_cy_filtered['Period'] = 'CY'
                 df_py_filtered['Period'] = 'PY'
-                
                 result = pd.concat([df_cy_filtered, df_py_filtered], ignore_index=True)
                 ```
                 """
@@ -259,21 +262,26 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                         ai_py_df = combined_df[combined_df['Period'] == 'PY']
                         
                         if not ai_cy_df.empty or not ai_py_df.empty:
-                            display_df = ai_cy_df.groupby(['Month','Dest_Type'])[['BV','HN']].sum().reset_index()
-                            display_df['BV (k€)'] = display_df['BV'] / 1000
-                            display_df = display_df.drop(columns=['BV'])
                             
-                            st.markdown(f"**🔍 CY Filtered Detail:**")
-                            st.dataframe(display_df.style.format({'BV (k€)': '{:,.0f}k', 'HN': '{:,.0f}'}), use_container_width=True, hide_index=True)
-                            
-                            st.markdown("**📉 Strategy Insight:**")
-                            
-                            # 🌟 恢复全量上下文给文本 AI
-                            full_ui_context = f"User Question: {prompt} | Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'} | TAs: {', '.join(sel_ta) if sel_ta else 'All'}"
-                            
-                            insights = generate_pacing_insights(ai_cy_df, ai_py_df, full_ui_context)
-                            st.info(f"💡 **Executive Report:**\n\n{insights}")
+                            # 🌟 1. 优先输出宏观战略总结 (High-level Summary FIRST)
+                            st.markdown("### 🌍 Executive Macro-Summary")
+                            full_ui_context = f"Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'}"
+                            insights = generate_macro_insights(ai_cy_df, ai_py_df, full_ui_context)
+                            st.info(insights)
                             st.session_state.messages.append({"role": "assistant", "content": insights})
+                            
+                            # 🌟 2. 细分维度下钻图表 (Resort Level & TA Contribution)
+                            st.markdown("### 📊 Operational Drill-down (CY)")
+                            col_resort, col_ta = st.columns(2)
+                            
+                            with col_resort:
+                                if ai_cy_df['Resort'].nunique() > 0:
+                                    st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'Resort', 'Top 5 Resorts by Volume (k€)', '#1D263B'), use_container_width=True)
+                                
+                            with col_ta:
+                                if ai_cy_df['TA_Group'].nunique() > 0:
+                                    st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'TA_Group', 'Top 5 TA Contributors (k€)', '#A64B35'), use_container_width=True)
+
                         else:
                             st.warning("⚠️ No data was found for this target in the selected timeframe.")
                     else:
