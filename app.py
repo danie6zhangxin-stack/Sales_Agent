@@ -35,11 +35,13 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. Core Data Cleaning ---
+# --- 3. Core Data Cleaning (精准映射版) ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
     data.columns = [col.strip() for col in data.columns]
+    
+    # 🌟 1. VIP 精准映射：直接把你的真实列名绑死
     mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
@@ -50,11 +52,28 @@ def load_and_clean(file):
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
         'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
-        '[BVSTS_Euro]': 'BV_Euro',
-        '[BVSTS_Locale]': 'BV_Locale',
+        '[BVSTS___final]': 'BV_Euro',   # <--- 你的欧元专属列名
         '[HN_final]': 'HN'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
+    
+    # 🌟 2. 备用模糊匹配：抓取 Locale 或者其他可能的变体
+    for col in data.columns:
+        if col in ['BV_Euro', 'BV_Locale', 'HN', 'Sales_Date']: continue
+        c_up = col.upper()
+        if 'BV' in c_up and 'EURO' in c_up and 'BV_Euro' not in data.columns: 
+            data.rename(columns={col: 'BV_Euro'}, inplace=True)
+        elif 'BV' in c_up and ('LOCAL' in c_up or 'LOCALE' in c_up) and 'BV_Locale' not in data.columns: 
+            data.rename(columns={col: 'BV_Locale'}, inplace=True)
+        elif 'HN' in c_up and 'FINAL' in c_up and 'HN' not in data.columns: 
+            data.rename(columns={col: 'HN'}, inplace=True)
+        elif 'SALES_DATE' in c_up and 'Sales_Date' not in data.columns: 
+            data.rename(columns={col: 'Sales_Date'}, inplace=True)
+            
+    # 🌟 防爆底线
+    if 'BV_Euro' not in data.columns: data['BV_Euro'] = 0.0
+    if 'BV_Locale' not in data.columns: data['BV_Locale'] = 0.0
+    if 'HN' not in data.columns: data['HN'] = 0.0
     
     for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if col in data.columns: data[col] = data[col].astype(str).str.strip()
@@ -82,14 +101,12 @@ def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
     combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
     
-    # Bar Chart
     fig_bar = go.Figure()
     text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
     fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='auto', textfont=dict(size=14)))
     fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{v:,.0f}k</b>" for v in combined[f'{bv_col}_PY']], textposition='auto', textfont=dict(size=14)))
     fig_bar.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18)), barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=70, b=0), legend=dict(orientation="h", y=1.1, x=0.5, xanchor='center'), yaxis=dict(visible=False))
 
-    # Pie Chart
     fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"<b>{cy_label} Share</b>", color_discrete_sequence=['#1D263B', '#A64B35', '#A4B6B0', '#EAECEF'])
     fig_pie.update_traces(textposition='inside', textinfo='percent+label', hole=.3)
     fig_pie.update_layout(showlegend=False, margin=dict(t=50, b=0, l=0, r=0))
@@ -127,25 +144,34 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with st.sidebar:
         st.markdown("### 🛠️ Global Filters")
         
-        # Currency Switch
         bv_selection = st.radio("Display Currency:", ["Euro (€)", "Locale (Original)"])
         bv_col = "BV_Euro" if "Euro" in bv_selection else "BV_Locale"
         currency_symbol = "€" if "Euro" in bv_selection else ""
-
-        sel_year = st.selectbox("Consumption Year", sorted(df['Year'].unique(), reverse=True), index=0)
-        season = st.radio("Season Focus", ["All Year", "S1 (Jan-Jun)", "S2 (Jul-Dec)"])
+        
         sel_markets = st.multiselect("Market Select", sorted(df['Market'].unique()))
         sel_ta = st.multiselect("Travel Agency Select", sorted(df['TA_Group'].unique()))
 
         st.divider()
         
-        # Consumption Date Filter
-        st.markdown("### 📅 Consumption Range")
-        max_cons_date = df['Cons_Date'].max().date() if not df['Cons_Date'].dropna().empty else datetime.date.today()
-        cons_start, cons_end = st.date_input("Filter Consumption Dates:", [max_cons_date - datetime.timedelta(days=180), max_cons_date])
+        st.markdown("### 📅 Consumption Window")
+        cons_mode = st.radio("Filter By:", ["Quick Select (Year/Season)", "Custom Date Range"])
+        
+        if cons_mode == "Quick Select (Year/Season)":
+            sel_year = st.selectbox("Consumption Year", sorted(df['Year'].unique(), reverse=True), index=0)
+            season = st.radio("Season Focus", ["All Year", "S1 (Jan-Jun)", "S2 (Jul-Dec)"])
+            cons_start, cons_end = None, None
+            cy_label, py_label = f"CY {sel_year}", f"PY {sel_year-1}"
+        else:
+            sel_year, season = None, None
+            max_cons_date = df['Cons_Date'].max().date() if not df['Cons_Date'].dropna().empty else datetime.date.today()
+            col_cs, col_ce = st.columns(2)
+            cons_start = col_cs.date_input("Cons. Start", value=max_cons_date - datetime.timedelta(days=180))
+            cons_end = col_ce.date_input("Cons. End", value=max_cons_date)
+            cy_label, py_label = f"CY ({cons_start.year})", f"PY ({cons_start.year - 1})"
 
-        # Booking Window Filter
-        st.markdown("### 📅 Booking Window (Pacing)")
+        st.divider()
+        
+        st.markdown("### 📅 Booking Window (Sales)")
         preset = st.selectbox("Quick Range Select", ["Last 3 Months", "Last Week", "Last 1 Month", "Custom Range"])
         max_sales_date = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         
@@ -162,21 +188,36 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
         else: st.error("Date Error"); st.stop()
 
-    def apply_ui_filters(input_df, year_val, s_date, e_date, c_start, c_end):
-        d = input_df[input_df['Year'] == year_val]
-        d = d[(d['Sales_Date'].dt.date >= s_date) & (d['Sales_Date'].dt.date <= e_date)]
-        d = d[(d['Cons_Date'].dt.date >= c_start) & (d['Cons_Date'].dt.date <= c_end)]
-        if season == "S1 (Jan-Jun)": d = d[d['Month_Num'].between(1, 6)]
-        elif season == "S2 (Jul-Dec)": d = d[d['Month_Num'].between(7, 12)]
+    def apply_ui_filters(input_df, c_mode, y_val, seas_val, c_start, c_end, s_start, s_end):
+        d = input_df.copy()
+        d = d[(d['Sales_Date'].dt.date >= s_start) & (d['Sales_Date'].dt.date <= s_end)]
+        if c_mode == "Quick Select (Year/Season)":
+            d = d[d['Year'] == y_val]
+            if seas_val == "S1 (Jan-Jun)": d = d[d['Month_Num'].between(1, 6)]
+            elif seas_val == "S2 (Jul-Dec)": d = d[d['Month_Num'].between(7, 12)]
+        else:
+            d = d[(d['Cons_Date'].dt.date >= c_start) & (d['Cons_Date'].dt.date <= c_end)]
+            
         if sel_markets: d = d[d['Market'].isin(sel_markets)]
         if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
         return d
 
-    df_cy_base = apply_ui_filters(df, sel_year, start_date, end_date, cons_start, cons_end)
-    df_py_base = apply_ui_filters(df, sel_year - 1, py_start, py_end, cons_start.replace(year=cons_start.year-1), cons_end.replace(year=cons_end.year-1))
+    df_cy_base = apply_ui_filters(df, cons_mode, sel_year, season, cons_start, cons_end, start_date, end_date)
+    
+    if cons_mode == "Quick Select (Year/Season)":
+        py_y_val = sel_year - 1
+        py_c_start, py_c_end = None, None
+    else:
+        py_y_val = None
+        try:
+            py_c_start, py_c_end = cons_start.replace(year=cons_start.year-1), cons_end.replace(year=cons_end.year-1)
+        except ValueError:
+            py_c_start, py_c_end = cons_start - datetime.timedelta(days=365), cons_end - datetime.timedelta(days=365)
+            
+    df_py_base = apply_ui_filters(df, cons_mode, py_y_val, season, py_c_start, py_c_end, py_start, py_end)
 
     # --- Dashboard Header & KPIs ---
-    st.markdown(f"### 📈 Executive Booking Pacing: {sel_year} vs {sel_year-1}")
+    st.markdown(f"### 📈 Executive Booking Pacing: {cy_label} vs {py_label}")
     
     cy_bv, py_bv = df_cy_base[bv_col].sum() / 1000, df_py_base[bv_col].sum() / 1000
     cy_hn, py_hn = df_cy_base['HN'].sum(), df_py_base['HN'].sum()
@@ -189,9 +230,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
     # --- Charts ---
     mkt_t = ", ".join(sel_markets) if sel_markets else "All Markets"
-    chart_title = f"<b>Booking Pace by Destination Type Asia</b><br><sup style='color: gray;'>{mkt_t} | Consumption: {cons_start} to {cons_end}</sup>"
+    if cons_mode == "Quick Select (Year/Season)": cons_desc = f"{season} {sel_year}"
+    else: cons_desc = f"{cons_start} to {cons_end}"
     
-    fig_bar, fig_pie = draw_charts(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", bv_col, chart_title)
+    chart_title = f"<b>Booking Pace by Destination Type Asia</b><br><sup style='color: gray;'>{mkt_t} | Consumption: {cons_desc}</sup>"
+    
+    fig_bar, fig_pie = draw_charts(df_cy_base, df_py_base, cy_label, py_label, bv_col, chart_title)
     
     col_left, col_right = st.columns([2, 1])
     with col_left: st.plotly_chart(fig_bar, use_container_width=True)
@@ -226,16 +270,13 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                         ai_cy_df = combined_df[combined_df['Period'] == 'CY']
                         ai_py_df = combined_df[combined_df['Period'] == 'PY']
                     
-                    full_context = f"Question: {prompt} | Currency: {bv_selection} | Cons_Window: {cons_start} to {cons_end} | Sales_Window: {start_date} to {end_date}"
+                    full_context = f"Question: {prompt} | Currency: {bv_selection} | Cons_Window: {cons_desc} | Sales_Window: {start_date} to {end_date}"
                     insights = generate_macro_insights(ai_cy_df, ai_py_df, full_context, bv_col)
                     st.info(insights)
                     st.session_state.messages.append({"role": "assistant", "content": insights})
                 except:
-                    st.error("Analysis failed.")
+                    st.error("Analysis failed. Try rephrasing.")
 else:
-    # ==========================================
-    # 🌟 6. Full Premium Welcome UI (Restored!)
-    # ==========================================
     welcome_html = """
     <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #1D263B 0%, #2A3650 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
         <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
@@ -249,7 +290,6 @@ else:
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # 🌟 3 Feature Cards
     c1, c2, c3 = st.columns(3)
     
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
