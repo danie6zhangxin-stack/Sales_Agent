@@ -129,7 +129,7 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
     
-    # 🌟 Applied precise hovertemplate (%{y:,.1f}) to lines
+    # 🌟 Precise Hovertemplate with 1 decimal
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     
@@ -162,8 +162,9 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
         else: continue
         fig.add_annotation(x=c_date, y=0, text=txt, showarrow=True, arrowhead=1, ax=0, ay=-40 if curr_gap>0 else 40, bgcolor="rgba(255,255,255,0.9)", bordercolor="gray", borderwidth=1, row=2, col=1)
 
-    fig.update_yaxes(ticksuffix="k", tickformat=".2s", row=1, col=1)
-    fig.update_yaxes(ticksuffix="k", tickformat=".2s", row=2, col=1)
+    # 🌟 Format Y-axis with comma and 'k' suffix for all ranges
+    fig.update_yaxes(ticksuffix="k", tickformat=",", row=1, col=1)
+    fig.update_yaxes(ticksuffix="k", tickformat=",", row=2, col=1)
     
     fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
@@ -177,12 +178,13 @@ def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text)
     fig = go.Figure()
     colors = ['rgba(40,167,69,0.8)' if val >= 0 else 'rgba(220,53,69,0.8)' for val in df_weekly['Weekly_Gap']]
     
-    # 🌟 Fixed Trace Name & Hover Template
+    # 🌟 Precise Hovertemplate & Exact Name
     fig.add_trace(go.Bar(x=df_weekly['Sales_Date'], y=df_weekly['Weekly_Gap'], name='Weekly Variance', marker_color=colors, text=[f"{format_volume(v)}" for v in df_weekly['Weekly_Gap']], textposition='outside', hovertemplate='<b>Variance:</b> %{y:,.1f}<extra></extra>'))
     fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly", mode='lines+markers', line=dict(color='#1D263B', width=2), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'))
     fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'))
     
-    fig.update_yaxes(ticksuffix="k", tickformat=".2s")
+    # 🌟 Format Y-axis with comma and 'k' suffix
+    fig.update_yaxes(ticksuffix="k", tickformat=",")
     
     fig.update_layout(title=dict(text=f"<b>⚡ Weekly Incremental Booking Velocity</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
@@ -259,7 +261,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 df_cons_filtered = df_cons_filtered[df_cons_filtered['Month_Num'].between(*m_range)]
             c_start, c_end = None, None
         else:
-            max_c = df['Cons_Date'].max().date(); c_start = st.date_input("Cons. Start", max_c - datetime.timedelta(days=180))
+            # 🌟 Fixed NameError Exception: Pre-declare sel_y and season
+            sel_y, season = None, None
+            max_c = df['Cons_Date'].max().date() if not df['Cons_Date'].dropna().empty else datetime.date.today()
+            c_start = st.date_input("Cons. Start", max_c - datetime.timedelta(days=180))
             c_end = st.date_input("Cons. End", max_c); cons_desc = f"{c_start} to {c_end}"
             cy_label, py_label = f"CY ({c_start.year})", f"PY ({c_start.year-1})"
             df_cons_filtered = df[(df['Cons_Date'].dt.date >= c_start) & (df['Cons_Date'].dt.date <= c_end)]
@@ -309,7 +314,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     tab1, tab2, tab3 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🤖 Strategic AI Advisor"])
 
     with tab1:
-        st.markdown(f"<h3 style='margin-bottom:20px;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='margin-bottom:20px; font-weight: 700; color: #051C2C;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         cy_v, py_v = df_cy[bv_col].sum(), df_py[bv_col].sum()
         cy_h, py_h = df_cy['HN'].sum(), df_py['HN'].sum()
@@ -323,14 +328,13 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             py_g = df_py.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
             
-            # 🌟 Precise percentage embedded in Bar text
             combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
             text_cy = [f"<b>{format_volume(cy)}<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{format_volume(cy)}</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
             
             fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside', textangle=0, hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'))
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'))
-            fig_bar.update_yaxes(tickformat=".2s")
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY']/1000, name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside', textangle=0, hovertemplate='<b>CY:</b> %{y:,.1f}k<extra></extra>'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY']/1000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, hovertemplate='<b>PY:</b> %{y:,.1f}k<extra></extra>'))
+            fig_bar.update_yaxes(ticksuffix="k", tickformat=",")
             fig_bar.update_layout(title=f"Booking Pace by Dest Type<br><sup style='color:gray;'>{chart_info}</sup>", barmode='group', margin=dict(t=100))
             st.plotly_chart(fig_bar, use_container_width=True)
         with col_r:
@@ -350,7 +354,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             c_d = pd.merge(df_t, c_d, on='Sales_Date', how='left').fillna(0)
             p_d = pd.merge(df_t, p_d, on='Sales_Date', how='left').fillna(0)
             res = df_t.copy()
-            res['CY_inc'] = c_d[bv_col]; res['PY_inc'] = p_d[bv_col]
+            res['CY_inc'] = c_d[bv_col]/1000; res['PY_inc'] = p_d[bv_col]/1000
             res['CY'] = res['CY_inc'].cumsum(); res['PY'] = res['PY_inc'].cumsum(); res['Gap'] = res['CY'] - res['PY']
             return res
 
@@ -360,8 +364,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
     with tab3:
         if "messages" not in st.session_state: st.session_state.messages = []
-        
-        # 🌟 Chat interface properly scoped and grouped for perfect flow
         chat_container = st.container()
         
         with chat_container:
@@ -369,7 +371,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 with st.chat_message(m["role"]): st.markdown(m["content"])
 
         if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Follow up on Esap Mountain...)"):
-            # Update and display immediately inside container
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
                 with st.chat_message("user"): st.write(prompt)
