@@ -5,9 +5,10 @@ from pandasai import Agent
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 import plotly.graph_objects as go
+import plotly.express as px
 import datetime
 
-# --- 1. 高端商业视觉配置 ---
+# --- 1. Executive Visual Configuration ---
 st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", page_icon="Ψ")
 
 CSS_STYLE = """
@@ -26,7 +27,7 @@ CSS_STYLE = """
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
-# --- 2. AI 引擎初始化 ---
+# --- 2. AI Engine Initialization ---
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
@@ -34,7 +35,7 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. 核心数据清洗 ---
+# --- 3. Core Data Cleaning ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
@@ -43,172 +44,165 @@ def load_and_clean(file):
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
         'CONSUMPTION_CALENDAR[Consumption_year]': 'Year',
+        'CONSUMPTION_CALENDAR[Consumption_date]': 'Cons_Date',
         'SALES_CALENDAR[Sales_date]': 'Sales_Date',
         'REF_SALES_MARKET[Market]': 'Market',
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
         'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
-        '[BVSTS___final]': 'BV',
+        '[BVSTS_Euro]': 'BV_Euro',
+        '[BVSTS_Locale]': 'BV_Locale',
         '[HN_final]': 'HN'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
+    
     for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if col in data.columns: data[col] = data[col].astype(str).str.strip()
-    for col in ['BV', 'HN']:
-        if col in data.columns: data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+    
+    for col in ['BV_Euro', 'BV_Locale', 'HN']:
+        if col in data.columns:
+            data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', '').replace(' ', ''), errors='coerce').fillna(0)
+    
     data['Year'] = pd.to_numeric(data['Year'], errors='coerce').fillna(0).astype(int)
     data['Month_Num'] = pd.to_numeric(data['Month_Num'], errors='coerce').fillna(0).astype(int)
-    if 'Sales_Date' in data.columns:
-        data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
+    
+    if 'Sales_Date' in data.columns: data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
+    if 'Cons_Date' in data.columns: data['Cons_Date'] = pd.to_datetime(data['Cons_Date'], errors='coerce')
+        
     return data
 
-# --- 🌟 高级画图模块 ---
-def draw_pacing_chart(cy_df, py_df, cy_label, py_label, dynamic_title):
-    cy_g = cy_df.groupby('Dest_Type')[['BV']].sum().reset_index()
-    py_g = py_df.groupby('Dest_Type')[['BV']].sum().reset_index()
+# --- 🌟 Plotting: Bar & Pie ---
+def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
+    cy_g = cy_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
+    py_g = py_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
     
-    cy_g['BV'] = cy_g['BV'] / 1000
-    py_g['BV'] = py_g['BV'] / 1000
+    cy_g[bv_col] /= 1000
+    py_g[bv_col] /= 1000
     
     combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
-    combined['YoY_Pct'] = np.where(combined['BV_PY'] > 0, (combined['BV_CY'] - combined['BV_PY']) / combined['BV_PY'] * 100, 0)
+    combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
     
-    text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined['BV_CY'], combined['BV_PY'], combined['YoY_Pct'])]
-    text_py = [f"<b>{py:,.0f}k</b>" for py in combined['BV_PY']]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=combined['Dest_Type'], y=combined['BV_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='auto', textfont=dict(size=14)))
-    fig.add_trace(go.Bar(x=combined['Dest_Type'], y=combined['BV_PY'], name=py_label, marker_color='#A4B6B0', text=text_py, textposition='auto', textfont=dict(size=14)))
-    
-    fig.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18, color='#1D263B'), y=0.95),
-                      barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=70, b=0, l=0, r=0), 
-                      legend=dict(orientation="h", y=1.05, x=0.5, xanchor='center'), yaxis=dict(visible=False))
-    return fig
+    # Bar Chart
+    fig_bar = go.Figure()
+    text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
+    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='auto', textfont=dict(size=14)))
+    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{v:,.0f}k</b>" for v in combined[f'{bv_col}_PY']], textposition='auto', textfont=dict(size=14)))
+    fig_bar.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18)), barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=70, b=0), legend=dict(orientation="h", y=1.1, x=0.5, xanchor='center'), yaxis=dict(visible=False))
 
-def draw_horizontal_bar(data_df, group_col, title, color):
-    g_df = data_df.groupby(group_col)['BV'].sum().reset_index().sort_values('BV', ascending=True).tail(5)
-    g_df['BV'] = g_df['BV'] / 1000
-    
-    fig = go.Figure(go.Bar(x=g_df['BV'], y=g_df[group_col], orientation='h', marker_color=color, text=g_df['BV'], texttemplate='<b>%{text:,.0f}k</b>', textposition='inside', textfont=dict(size=12, color='white')))
-    fig.update_layout(title=dict(text=title, font=dict(family="Playfair Display", size=16)), plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=40, b=0, l=0, r=0), xaxis=dict(visible=False), yaxis=dict(showgrid=False))
-    return fig
+    # Pie Chart
+    fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"<b>{cy_label} Share</b>", color_discrete_sequence=['#1D263B', '#A64B35', '#A4B6B0', '#EAECEF'])
+    fig_pie.update_traces(textposition='inside', textinfo='percent+label', hole=.3)
+    fig_pie.update_layout(showlegend=False, margin=dict(t=50, b=0, l=0, r=0))
 
-# --- 🌟 AI 宏观经济战略洞察生成器 ---
-def generate_macro_insights(cy_data, py_data, context_desc):
-    cy_bv = cy_data['BV'].sum() / 1000 
-    py_bv = py_data['BV'].sum() / 1000
-    pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0
+    return fig_bar, fig_pie
+
+# --- 🌟 AI Insights Generator ---
+def generate_macro_insights(cy_data, py_data, context_desc, bv_col):
+    cy_total = cy_data[bv_col].sum() / 1000
+    py_total = py_data[bv_col].sum() / 1000
+    pct = ((cy_total - py_total) / py_total * 100) if py_total > 0 else 0
+    currency = "k€" if "Euro" in bv_col else "k (Locale)"
     
-    top_resorts = cy_data.groupby('Resort')['BV'].sum().nlargest(3).to_dict()
-    top_tas = cy_data.groupby('TA_Group')['BV'].sum().nlargest(3).to_dict()
-    
-    sys_prompt = """You are the Chief Strategy Officer and Macro-Economist for ClubMed. 
-    Analyze the YoY pacing variance.
-    
-    CRITICAL STRUCTURE FOR YOUR RESPONSE:
-    1. **Macro-Environmental Shift**: Explain the variance NOT just with numbers, but by hypothesizing plausible MACRO factors relevant to the 2025/2026 global landscape (e.g., shifting geopolitical tensions, economic policies, visa-free travel, flight capacity, currency fluctuations).
-    2. **Strategic Pivot**: Explain how these macro events force a shift in consumer behavior (e.g., flight to safety, booking window changes).
-    3. **Micro-Execution**: Briefly tie the theory to the top performing Resorts and TAs provided in the data.
-    
-    Write a compelling, boardroom-ready story (4-5 sentences max)."""
-    
-    user_prompt = f"UI Context: {context_desc}\nCY Total: {cy_bv:,.0f} k€ | PY Total: {py_bv:,.0f} k€ | Variance: {pct:+.1f}%\n\nTop Resorts CY: {top_resorts}\nTop TAs CY: {top_tas}"
+    sys_prompt = "You are a Strategy Consultant for ClubMed. Analyze the variance between CY and PY. Focus on macro-environmental shifts and strategic behavior. Use 4-5 sentences."
+    user_prompt = f"Context: {context_desc}\nCurrency: {currency}\nCY: {cy_total:,.0f} | PY: {py_total:,.0f}\nVariance: {pct:+.1f}%\nBreakdown:\n{cy_data.groupby('Dest_Type')[bv_col].sum().to_string()}"
     
     try:
         resp = llm.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_prompt)])
         return resp.content
     except:
-        return "Unable to generate macro insights at this time."
+        return "Insight generation currently unavailable."
 
 def extract_dataframe(resp):
     if isinstance(resp, pd.DataFrame): return resp
     if isinstance(resp, dict) and 'value' in resp and isinstance(resp['value'], pd.DataFrame): return resp['value']
-    if hasattr(resp, 'dataframe'): return resp.dataframe
     try: return pd.DataFrame(resp)
     except: return None
 
 # ==========================================
-# 🌟 4. 业务界面逻辑
+# 🌟 4. Main Business UI
 # ==========================================
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
     with st.sidebar:
         st.markdown("### 🛠️ Global Filters")
+        
+        # Currency Switch
+        bv_selection = st.radio("Display Currency:", ["Euro (€)", "Locale (Original)"])
+        bv_col = "BV_Euro" if "Euro" in bv_selection else "BV_Locale"
+        currency_symbol = "€" if "Euro" in bv_selection else ""
+
         sel_year = st.selectbox("Consumption Year", sorted(df['Year'].unique(), reverse=True), index=0)
         season = st.radio("Season Focus", ["All Year", "S1 (Jan-Jun)", "S2 (Jul-Dec)"])
         sel_markets = st.multiselect("Market Select", sorted(df['Market'].unique()))
         sel_ta = st.multiselect("Travel Agency Select", sorted(df['TA_Group'].unique()))
 
         st.divider()
-        st.markdown("### 📅 Booking Window (Pacing)")
-        max_date = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         
-        preset = st.selectbox("Quick Range Select", ["Last 3 Months", "Last Week", "Last 1 Month", "Last 6 Months", "Last 1 Year", "Custom Range"])
+        # Consumption Date Filter
+        st.markdown("### 📅 Consumption Range")
+        max_cons_date = df['Cons_Date'].max().date() if not df['Cons_Date'].dropna().empty else datetime.date.today()
+        cons_start, cons_end = st.date_input("Filter Consumption Dates:", [max_cons_date - datetime.timedelta(days=180), max_cons_date])
+
+        # Booking Window Filter
+        st.markdown("### 📅 Booking Window (Pacing)")
+        preset = st.selectbox("Quick Range Select", ["Last 3 Months", "Last Week", "Last 1 Month", "Custom Range"])
+        max_sales_date = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         
         if preset == "Custom Range":
-            col_start, col_end = st.columns(2)
-            start_date = col_start.date_input("Start Date", value=max_date - datetime.timedelta(days=90))
-            end_date = col_end.date_input("End Date", value=max_date)
+            col_s, col_e = st.columns(2)
+            start_date = col_s.date_input("Sales Start", value=max_sales_date - datetime.timedelta(days=90))
+            end_date = col_e.date_input("Sales End", value=max_sales_date)
         else:
-            if preset == "Last Week": start_date = max_date - datetime.timedelta(days=7)
-            elif preset == "Last 1 Month": start_date = max_date - datetime.timedelta(days=30)
-            elif preset == "Last 3 Months": start_date = max_date - datetime.timedelta(days=90)
-            elif preset == "Last 6 Months": start_date = max_date - datetime.timedelta(days=180)
-            elif preset == "Last 1 Year": start_date = max_date - datetime.timedelta(days=365)
-            end_date = max_date
-            st.info(f"📅 Active Window:\n**{start_date.strftime('%d %b %Y')}** to **{end_date.strftime('%d %b %Y')}**")
-        
-        if start_date <= end_date:
-            try:
-                py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
-            except ValueError:
-                py_start, py_end = start_date - datetime.timedelta(days=365), end_date - datetime.timedelta(days=365)
-        else:
-            st.error("Start Date must be before End Date.")
-            st.stop()
+            days_map = {"Last Week": 7, "Last 1 Month": 30, "Last 3 Months": 90}
+            start_date = max_sales_date - datetime.timedelta(days=days_map[preset])
+            end_date = max_sales_date
 
-    def apply_ui_filters(input_df, year_val, s_date, e_date):
+        if start_date <= end_date:
+            py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
+        else: st.error("Date Error"); st.stop()
+
+    def apply_ui_filters(input_df, year_val, s_date, e_date, c_start, c_end):
         d = input_df[input_df['Year'] == year_val]
         d = d[(d['Sales_Date'].dt.date >= s_date) & (d['Sales_Date'].dt.date <= e_date)]
+        d = d[(d['Cons_Date'].dt.date >= c_start) & (d['Cons_Date'].dt.date <= c_end)]
         if season == "S1 (Jan-Jun)": d = d[d['Month_Num'].between(1, 6)]
         elif season == "S2 (Jul-Dec)": d = d[d['Month_Num'].between(7, 12)]
         if sel_markets: d = d[d['Market'].isin(sel_markets)]
         if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
         return d
 
-    df_cy_base = apply_ui_filters(df, sel_year, start_date, end_date)
-    df_py_base = apply_ui_filters(df, sel_year - 1, py_start, py_end)
+    df_cy_base = apply_ui_filters(df, sel_year, start_date, end_date, cons_start, cons_end)
+    df_py_base = apply_ui_filters(df, sel_year - 1, py_start, py_end, cons_start.replace(year=cons_start.year-1), cons_end.replace(year=cons_end.year-1))
 
+    # --- Dashboard Header & KPIs ---
     st.markdown(f"### 📈 Executive Booking Pacing: {sel_year} vs {sel_year-1}")
     
-    cy_bv = df_cy_base['BV'].sum() / 1000
-    py_bv = df_py_base['BV'].sum() / 1000
-    cy_hn = df_cy_base['HN'].sum()
-    py_hn = df_py_base['HN'].sum()
-    cy_adr = (cy_bv * 1000) / cy_hn if cy_hn > 0 else 0
-    py_adr = (py_bv * 1000) / py_hn if py_hn > 0 else 0
+    cy_bv, py_bv = df_cy_base[bv_col].sum() / 1000, df_py_base[bv_col].sum() / 1000
+    cy_hn, py_hn = df_cy_base['HN'].sum(), df_py_base['HN'].sum()
+    cy_adr, py_adr = (cy_bv * 1000) / cy_hn if cy_hn > 0 else 0, (py_bv * 1000) / py_hn if py_hn > 0 else 0
 
     c1, c2, c3 = st.columns(3)
-    c1.metric("Paced BV (k€)", f"k€ {cy_bv:,.0f}", f"{(cy_bv-py_bv)/py_bv*100:.1f}%" if py_bv>0 else None)
+    c1.metric(f"Paced BV ({bv_selection.split(' ')[0]})", f"{currency_symbol}{cy_bv:,.0f}k", f"{(cy_bv-py_bv)/py_bv*100:.1f}%" if py_bv>0 else None)
     c2.metric("Paced HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
-    c3.metric("Current ADR", f"€ {cy_adr:,.0f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
+    c3.metric("Current ADR", f"{currency_symbol}{cy_adr:,.0f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
 
-    if not sel_markets: mkt_title = "All Markets"
-    elif len(sel_markets) <= 2: mkt_title = ", ".join(sel_markets)
-    else: mkt_title = f"{len(sel_markets)} Markets"
-    filter_desc = f"{season} | {mkt_title} | Booking: {start_date.strftime('%d %b')} - {end_date.strftime('%d %b')}"
-    chart_title = f"<b>Booking Pace by Destination Type</b><br><sup style='color: gray; font-size: 14px;'>{filter_desc} (Unit: k€)</sup>"
+    # --- Charts ---
+    mkt_t = ", ".join(sel_markets) if sel_markets else "All Markets"
+    chart_title = f"<b>Booking Pace by Destination Type Asia</b><br><sup style='color: gray;'>{mkt_t} | Consumption: {cons_start} to {cons_end}</sup>"
     
-    st.plotly_chart(draw_pacing_chart(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", chart_title), use_container_width=True)
+    fig_bar, fig_pie = draw_charts(df_cy_base, df_py_base, f"CY {sel_year}", f"PY {sel_year-1}", bv_col, chart_title)
+    
+    col_left, col_right = st.columns([2, 1])
+    with col_left: st.plotly_chart(fig_bar, use_container_width=True)
+    with col_right: st.plotly_chart(fig_pie, use_container_width=True)
 
     # ==========================================
-    # 🌟 5. 智能 AI 顾问 (无敌防崩溃降级版)
+    # 🌟 5. AI Macro & Strategy Advisor
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy & Macro Advisor")
     if "messages" not in st.session_state: st.session_state.messages = []
-    
     for m in st.session_state.messages:
         with st.chat_message(m["role"]): st.markdown(m["content"])
 
@@ -217,99 +211,72 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         with st.chat_message("user"): st.write(prompt)
             
         with st.chat_message("assistant"):
-            with st.spinner("Compiling global macroeconomic data and drilling down..."):
+            with st.spinner("Compiling global data..."):
+                strict_instr = "YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."
+                agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instr})
                 
-                strict_instructions = "YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."
-                agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instructions})
+                hacked_prompt = f"""User: "{prompt}". Output only code to filter dfs[0] and dfs[1] by entity name in prompt, add 'Period' column, and result = pd.concat([cy, py])."""
                 
-                hacked_prompt = f"""
-                User Question: "{prompt}"
-                
-                IGNORE THE CONVERSATIONAL INTENT. Your ONLY task is to output the python code.
-                
-                1. If a specific Market, TA_Group, or Resort is mentioned, use uppercase fuzzy search.
-                2. If it is a general question (e.g. "why", "trend"), just assign df_cy_filtered = dfs[0].copy() and df_py_filtered = dfs[1].copy().
-                3. ADD column 'Period'. Concatenate into a SINGLE dataframe `result`.
-
-                ```python
-                import pandas as pd
-                
-                clean_target = 'ENTITY_NAME_HERE'.replace(' ', '').upper()
-                
-                if clean_target != 'ENTITY_NAME_HERE':
-                    mask_cy = (dfs[0]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[0]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                    df_cy_filtered = dfs[0][mask_cy].copy()
-                    
-                    mask_py = (dfs[1]['Market'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['TA_Group'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False) | dfs[1]['Resort'].str.replace(' ', '', regex=False).str.upper().str.contains(clean_target, na=False))
-                    df_py_filtered = dfs[1][mask_py].copy()
-                else:
-                    df_cy_filtered = dfs[0].copy()
-                    df_py_filtered = dfs[1].copy()
-                
-                df_cy_filtered['Period'] = 'CY'
-                df_py_filtered['Period'] = 'PY'
-                result = pd.concat([df_cy_filtered, df_py_filtered], ignore_index=True)
-                ```
-                """
-
-                ai_cy_df = pd.DataFrame()
-                ai_py_df = pd.DataFrame()
-
                 try:
                     response_raw = agent.chat(hacked_prompt)
                     combined_df = extract_dataframe(response_raw)
-                    
-                    if isinstance(combined_df, pd.DataFrame) and 'Period' in combined_df.columns:
+                    if not isinstance(combined_df, pd.DataFrame) or 'Period' not in combined_df.columns:
+                        ai_cy_df, ai_py_df = df_cy_base.copy(), df_py_base.copy()
+                    else:
                         ai_cy_df = combined_df[combined_df['Period'] == 'CY']
                         ai_py_df = combined_df[combined_df['Period'] == 'PY']
-                    else:
-                        raise ValueError("No valid dataframe extracted.")
-                        
-                except Exception as e:
-                    # 🌟 终极防崩溃逻辑 (Bulletproof Fallback) 🌟
-                    # 如果 AI 因为闲聊而忘了写代码导致报错，系统静默拦截，直接将当前大盘数据交给后续分析！
-                    ai_cy_df = df_cy_base.copy()
-                    ai_py_df = df_py_base.copy()
-
-                # --- 渲染分析与图表 ---
-                if not ai_cy_df.empty or not ai_py_df.empty:
-                    st.markdown("### 🌍 Executive Macro-Summary")
-                    full_ui_context = f"Season: {season} | Booking Window: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')} | Markets: {', '.join(sel_markets) if sel_markets else 'All'}"
                     
-                    insights = generate_macro_insights(ai_cy_df, ai_py_df, full_ui_context)
+                    full_context = f"Question: {prompt} | Currency: {bv_selection} | Cons_Window: {cons_start} to {cons_end} | Sales_Window: {start_date} to {end_date}"
+                    insights = generate_macro_insights(ai_cy_df, ai_py_df, full_context, bv_col)
                     st.info(insights)
                     st.session_state.messages.append({"role": "assistant", "content": insights})
-                    
-                    st.markdown("### 📊 Operational Drill-down (CY)")
-                    col_resort, col_ta = st.columns(2)
-                    
-                    with col_resort:
-                        if ai_cy_df['Resort'].nunique() > 0:
-                            st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'Resort', 'Top Resorts by Volume (k€)', '#1D263B'), use_container_width=True)
-                        
-                    with col_ta:
-                        if ai_cy_df['TA_Group'].nunique() > 0:
-                            st.plotly_chart(draw_horizontal_bar(ai_cy_df, 'TA_Group', 'Top TA Contributors (k€)', '#A64B35'), use_container_width=True)
-                else:
-                    st.warning("⚠️ No data available for this analysis.")
+                except:
+                    st.error("Analysis failed.")
 else:
-    # 🌟 迎宾大厅 UI
+    # ==========================================
+    # 🌟 6. Full Premium Welcome UI (Restored!)
+    # ==========================================
     welcome_html = """
     <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #1D263B 0%, #2A3650 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
         <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
-        <h1 style="font-family: 'Playfair Display', serif; font-size: 3.5rem; color: #FFFFFF; margin-bottom: 1rem; letter-spacing: 1px;">Executive Strategy Hub</h1>
+        <h1 style="font-family: 'Playfair Display', serif; font-size: 3.5rem; color: #FFFFFF; margin-bottom: 1rem; letter-spacing: 1px;">Executive Intelligence Hub</h1>
         <p style="font-family: 'Inter', sans-serif; font-size: 1.15rem; color: #A4B6B0; max-width: 650px; margin: 0 auto; line-height: 1.6; font-weight: 300;">
-            Elevate your revenue management. Please upload your Sales Data via the sidebar to unlock enterprise-grade pacing analytics, real-time market drill-downs, and AI-driven macroeconomic insights.
+            Elevate your sales strategy. Please upload your Sales Data via the sidebar to unlock multi-currency pacing analytics, consumption date precision, and AI-driven macroeconomic insights.
         </p>
     </div>
     """
     st.markdown(welcome_html, unsafe_allow_html=True)
+
     st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # 🌟 3 Feature Cards
     c1, c2, c3 = st.columns(3)
+    
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
+    
     with c1:
-        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Precision Pacing</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Align Current Year and Previous Year booking windows down to the exact day for flawless Apples-to-Apples comparisons.</p></div>', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday and campaign performance.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
     with c2:
-        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Market Drill-down</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly slice data by natural half-years (S1/S2), specific source markets, or top-performing Travel Agencies.</p></div>', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Global Perspective</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly toggle between Euro (€) and Locale currencies, with automated visualizations for Market and category shares.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
     with c3:
-        st.markdown(f'<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div><h3 style="font-family: \'Playfair Display\', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Macro AI Advisor</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Transform raw variance into boardroom-ready narratives, connecting data shifts with global macroeconomic and geopolitical trends.</p></div>', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #1D263B; font-size: 1.4rem; margin-bottom: 0.5rem;">Macro AI Advisor</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Transform raw sales variances into boardroom-ready narratives, connecting data shifts with global macroeconomic trends.</p>
+        </div>
+        ''', unsafe_allow_html=True)
