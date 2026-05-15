@@ -89,9 +89,8 @@ def load_and_clean(file):
         
     return data
 
-# --- 🌟 Pacing Curve & Variance Generator (FIXED ValueError) ---
+# --- 🌟 Pacing Curve & Variance Generator ---
 def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_markets, sel_ta, sel_dest, sel_resort, bv_col, s_end):
-    # Filter CY 
     d_cy = df[df['Year'] == cy_year].copy()
     if cons_mode == "Quick Select (Year/Season)":
         if season == "S1 (Jan-Jun)": d_cy = d_cy[d_cy['Month_Num'].between(1, 6)]
@@ -105,7 +104,6 @@ def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_ma
     if sel_resort: d_cy = d_cy[d_cy['Resort'].isin(sel_resort)]
     d_cy = d_cy[d_cy['Sales_Date'].dt.date <= s_end]
 
-    # Filter PY 
     d_py = df[df['Year'] == cy_year - 1].copy()
     if cons_mode == "Quick Select (Year/Season)":
         if season == "S1 (Jan-Jun)": d_py = d_py[d_py['Month_Num'].between(1, 6)]
@@ -137,13 +135,18 @@ def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_ma
     timeline = pd.date_range(start=min_date, end=pd.to_datetime(s_end), freq='D')
     df_time = pd.DataFrame({'Sales_Date': timeline})
 
-    # 🌟 重构的健壮合并逻辑，彻底规避 ValueError
     cy_daily = pd.merge(df_time, cy_daily, on='Sales_Date', how='left').fillna(0)
     py_daily = pd.merge(df_time, py_daily, on='Sales_Date', how='left').fillna(0)
 
     df_curve = df_time.copy()
-    df_curve['CY'] = cy_daily[bv_col].cumsum() / 1000
-    df_curve['PY'] = py_daily[bv_col].cumsum() / 1000
+    
+    # 🌟 关键：保留日增量数据，供周度速率图调用
+    df_curve['CY_inc'] = cy_daily[bv_col] / 1000
+    df_curve['PY_inc'] = py_daily[bv_col] / 1000
+    
+    # 计算累积数据供累积图调用
+    df_curve['CY'] = df_curve['CY_inc'].cumsum()
+    df_curve['PY'] = df_curve['PY_inc'].cumsum()
     df_curve['Gap'] = df_curve['CY'] - df_curve['PY']
     
     return df_curve
@@ -201,7 +204,46 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
     
     return fig
 
-# --- 🌟 Plotting Bar & Pie (FIXED Horizontal Text) ---
+# --- 🌟 新增：Weekly Incremental Booking Velocity 图表 ---
+def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol):
+    if df_curve is None or df_curve.empty: return go.Figure()
+    
+    # 聚合为自然周 (Monday-based)
+    df_weekly = df_curve.resample('W-MON', on='Sales_Date').sum().reset_index()
+    df_weekly['Weekly_Gap'] = df_weekly['CY_inc'] - df_weekly['PY_inc']
+    
+    fig = go.Figure()
+    
+    # 红绿动能分配
+    colors = ['rgba(40,167,69,0.8)' if val >= 0 else 'rgba(220,53,69,0.8)' for val in df_weekly['Weekly_Gap']]
+    
+    # 添加差异红绿柱
+    fig.add_trace(go.Bar(
+        x=df_weekly['Sales_Date'], 
+        y=df_weekly['Weekly_Gap'], 
+        name='Weekly Variance', 
+        marker_color=colors,
+        text=[f"{v:+,.0f}" for v in df_weekly['Weekly_Gap']],
+        textposition='outside',
+        textfont=dict(size=10)
+    ))
+    
+    # 叠加当周绝对业绩趋势线
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly Vol.", mode='lines+markers', line=dict(color='#1D263B', width=2)))
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly Vol.", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash')))
+
+    fig.update_layout(
+        title=dict(text="<b>⚡ Weekly Incremental Booking Velocity (Pace Speed)</b>", font=dict(family="Playfair Display", size=18)),
+        hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'), margin=dict(t=80, b=10)
+    )
+    
+    fig.update_xaxes(dtick="M1", tickformat="%Y-%b", showgrid=True, gridcolor='rgba(0,0,0,0.05)')
+    fig.update_yaxes(title_text=f"Weekly Volume ({curr_symbol}k)", showgrid=True, gridcolor='rgba(0,0,0,0.05)', zeroline=True, zerolinecolor='black', zerolinewidth=1.5)
+    
+    return fig
+
+# --- Plotting Bar & Pie ---
 def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
@@ -215,11 +257,9 @@ def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     fig_bar = go.Figure()
     text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
     
-    # 🌟 强制 textposition='outside' 和 textangle=0 解决重叠竖排问题
     fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='outside', textangle=0, textfont=dict(size=12)))
     fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{v:,.0f}k</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, textfont=dict(size=12)))
     
-    # 🌟 加大 margin-top 确保顶部标签不被截断
     fig_bar.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18)), barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=100, b=0), legend=dict(orientation="h", y=1.15, x=0.5, xanchor='center'), yaxis=dict(visible=False))
 
     fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"<b>{cy_label} Share</b>", color_discrete_sequence=['#1D263B', '#A64B35', '#A4B6B0', '#EAECEF'])
@@ -263,7 +303,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         bv_col = "BV_Euro" if "Euro" in bv_selection else "BV_Locale"
         currency_symbol = "€" if "Euro" in bv_selection else ""
         
-        # 🌟 补充的 Destination Type 和 Resort 过滤维度
         sel_dest = st.multiselect("Destination Type Select", sorted(df['Dest_Type'].unique()))
         sel_resort = st.multiselect("Resort Select", sorted(df['Resort'].unique()))
         sel_markets = st.multiselect("Market Select", sorted(df['Market'].unique()))
@@ -372,6 +411,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_curve = get_pacing_curve_data(df, base_cy_year, cons_mode, season, cons_start, cons_end, sel_markets, sel_ta, sel_dest, sel_resort, bv_col, end_date)
     fig_curve = draw_pacing_curve(df_curve, cy_label, py_label, currency_symbol)
     st.plotly_chart(fig_curve, use_container_width=True)
+    
+    # 🌟 新增：周度预订速率分析
+    st.markdown("### ⚡ Weekly Incremental Booking Velocity")
+    fig_weekly = draw_weekly_pace_chart(df_curve, cy_label, py_label, currency_symbol)
+    st.plotly_chart(fig_weekly, use_container_width=True)
+
 
     # ==========================================
     # 🌟 6. AI Macro & Strategy Advisor
