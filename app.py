@@ -4,7 +4,6 @@ import numpy as np
 from pandasai import Agent
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_community.tools import DuckDuckGoSearchRun
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
@@ -50,7 +49,7 @@ CSS_STYLE = """
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
-# --- 2. AI Engine & Search Tool Initialization ---
+# --- 2. AI Engine & 原生原生搜索工具 (Bypass LangChain Bug) ---
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
@@ -58,8 +57,18 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# 🌟 初始化外网搜索工具
-search_tool = DuckDuckGoSearchRun()
+# 🌟 原生防弹级 Web Search 函数
+def get_web_search_context(query):
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            # 搜索排名前 3 的最新结果
+            results = list(ddgs.text(query, max_results=3))
+            if not results:
+                return "No relevant news found."
+            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except Exception as e:
+        return f"Web search bypassed due to network/package error. AI will use internal data only."
 
 # --- 3. Core Data Cleaning ---
 @st.cache_data
@@ -273,7 +282,7 @@ def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
 
     return fig_bar, fig_pie
 
-# --- 🌟 AI Insights Generator (Powered by Web Search) ---
+# --- AI Insights Generator ---
 def generate_macro_insights(cy_data, py_data, context_desc, bv_col, search_context):
     cy_total = cy_data[bv_col].sum() / 1000
     py_total = py_data[bv_col].sum() / 1000
@@ -301,7 +310,6 @@ def extract_dataframe(resp):
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
-    # 🌟 顶部全局控制台 (Top Control Panel - McKinsey Style)
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
@@ -321,7 +329,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
     st.markdown("</div>", unsafe_allow_html=True)
     
-    # 🌟 侧边栏：专属时间窗口过滤器 (Time Windows)
     with st.sidebar:
         st.markdown("### 📅 Consumption Window")
         cons_mode = st.radio("Filter By:", ["Quick Select (Year/Season)", "Custom Date Range"])
@@ -388,7 +395,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             
     df_py_base = apply_ui_filters(df, cons_mode, py_y_val, season, py_c_start, py_c_end, py_start, py_end)
 
-    # --- Dashboard Header (Premium Style) & KPIs ---
     st.markdown(f"<div class='premium-header'>📈 Executive Booking Pacing: {cy_label} vs {py_label}</div>", unsafe_allow_html=True)
     
     cy_bv, py_bv = df_cy_base[bv_col].sum() / 1000, df_py_base[bv_col].sum() / 1000
@@ -400,7 +406,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     c2.metric("Paced HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
     c3.metric("Current ADR", f"{currency_symbol}{cy_adr:,.0f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
 
-    # --- Charts ---
     mkt_t = ", ".join(sel_markets) if sel_markets else "All Markets"
     if cons_mode == "Quick Select (Year/Season)": cons_desc = f"{season} {sel_year}"
     else: cons_desc = f"{cons_start} to {cons_end}"
@@ -426,7 +431,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.plotly_chart(fig_weekly, use_container_width=True)
 
     # ==========================================
-    # 🌟 6. AI Macro & Strategy Advisor (With WEB SEARCH)
+    # 🌟 6. AI Macro & Strategy Advisor
     # ==========================================
     st.markdown("<div class='premium-header'>🤖 AI Macro & Strategy Advisor</div>", unsafe_allow_html=True)
     
@@ -441,13 +446,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         with st.chat_message("assistant"):
             with st.spinner("🔍 Scanning web for global macro trends and compiling internal data..."):
                 
-                # 🌟 第一步：进行全网搜索，获取宏观环境/新闻/竞品动态
                 try:
-                    search_result = search_tool.invoke(prompt)
+                    search_result = get_web_search_context(prompt)
                 except Exception as e:
                     search_result = "Web search currently unavailable. Focus strictly on provided data."
                 
-                # 第二步：数据大盘提取
                 strict_instr = "YOU MUST OUTPUT EXACTLY ONE CODE BLOCK ENCLOSED IN ```python AND ```. NO TEXT."
                 agent = Agent([df_cy_base, df_py_base], config={"llm": llm, "save_charts": False, "custom_instructions": strict_instr})
                 
@@ -473,7 +476,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     
                     full_context = f"Question: {prompt} | Currency: {bv_selection} | Cons_Window: {cons_desc} | Sales_Window: {start_date} to {end_date}"
                     
-                    # 🌟 第三步：把【内部数据】和【外网搜索结果】一并交给大模型分析
                     insights = generate_macro_insights(ai_cy_df, ai_py_df, full_context, bv_col, search_result)
                     
                     st.info(insights)
