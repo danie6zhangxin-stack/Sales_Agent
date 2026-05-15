@@ -5,6 +5,7 @@ from pandasai import Agent
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import plotly.express as px
 import datetime
 
@@ -41,7 +42,6 @@ def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
     data.columns = [col.strip() for col in data.columns]
     
-    # 🌟 1. VIP 精准映射：欧元与本币的真实列名已全部绑死！
     mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
@@ -52,13 +52,12 @@ def load_and_clean(file):
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
         'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
-        '[BVSTS___final]': 'BV_Euro',        # 欧元的列名
-        '[BVSTS_loc_final]': 'BV_Locale',  # <--- 你提供的精准本币列名！
+        '[BVSTS___final]': 'BV_Euro',        
+        '[BVSTS_loc_final]': 'BV_Locale',  
         '[HN_final]': 'HN'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
-    # 🌟 2. 备用模糊匹配 (作为额外的安全网)
     for col in data.columns:
         if col in ['BV_Euro', 'BV_Locale', 'HN', 'Sales_Date']: continue
         c_up = col.upper()
@@ -71,7 +70,6 @@ def load_and_clean(file):
         elif 'SALES_DATE' in c_up and 'Sales_Date' not in data.columns: 
             data.rename(columns={col: 'Sales_Date'}, inplace=True)
             
-    # 防爆底线：如果数据里确实缺列，才补 0
     if 'BV_Euro' not in data.columns: data['BV_Euro'] = 0.0
     if 'BV_Locale' not in data.columns: data['BV_Locale'] = 0.0
     if 'HN' not in data.columns: data['HN'] = 0.0
@@ -91,7 +89,123 @@ def load_and_clean(file):
         
     return data
 
-# --- Plotting ---
+# --- 🌟 Pacing Curve & Variance Generator (NEW) ---
+def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_markets, sel_ta, bv_col, s_end):
+    # Filter CY (Ignore Sales Date initially to get full history up to s_end)
+    d_cy = df[df['Year'] == cy_year].copy()
+    if cons_mode == "Quick Select (Year/Season)":
+        if season == "S1 (Jan-Jun)": d_cy = d_cy[d_cy['Month_Num'].between(1, 6)]
+        elif season == "S2 (Jul-Dec)": d_cy = d_cy[d_cy['Month_Num'].between(7, 12)]
+    else:
+        d_cy = d_cy[(d_cy['Cons_Date'].dt.date >= c_start) & (d_cy['Cons_Date'].dt.date <= c_end)]
+        
+    if sel_markets: d_cy = d_cy[d_cy['Market'].isin(sel_markets)]
+    if sel_ta: d_cy = d_cy[d_cy['TA_Group'].isin(sel_ta)]
+    d_cy = d_cy[d_cy['Sales_Date'].dt.date <= s_end]
+
+    # Filter PY (Shifted by 1 year)
+    d_py = df[df['Year'] == cy_year - 1].copy()
+    if cons_mode == "Quick Select (Year/Season)":
+        if season == "S1 (Jan-Jun)": d_py = d_py[d_py['Month_Num'].between(1, 6)]
+        elif season == "S2 (Jul-Dec)": d_py = d_py[d_py['Month_Num'].between(7, 12)]
+    else:
+        try: py_c_s, py_c_e = c_start.replace(year=c_start.year-1), c_end.replace(year=c_end.year-1)
+        except ValueError: py_c_s, py_c_e = c_start - datetime.timedelta(days=365), c_end - datetime.timedelta(days=365)
+        d_py = d_py[(d_py['Cons_Date'].dt.date >= py_c_s) & (d_py['Cons_Date'].dt.date <= py_c_e)]
+        
+    if sel_markets: d_py = d_py[d_py['Market'].isin(sel_markets)]
+    if sel_ta: d_py = d_py[d_py['TA_Group'].isin(sel_ta)]
+    
+    try: py_s_end = s_end.replace(year=s_end.year-1)
+    except ValueError: py_s_end = s_end - datetime.timedelta(days=365)
+    d_py = d_py[d_py['Sales_Date'].dt.date <= py_s_end]
+
+    # Aggregate & Cumulative sum
+    cy_daily = d_cy.groupby('Sales_Date')[bv_col].sum().reset_index()
+    py_daily = d_py.groupby('Sales_Date')[bv_col].sum().reset_index()
+
+    # Shift PY Sales Dates forward 1 year to align axes!
+    py_daily['Sales_Date'] = py_daily['Sales_Date'] + pd.DateOffset(years=1)
+
+    if cy_daily.empty and py_daily.empty: return None
+
+    # Create master timeline
+    min_date = min(cy_daily['Sales_Date'].min(), py_daily['Sales_Date'].min())
+    if pd.isna(min_date): return None
+    
+    timeline = pd.date_range(start=min_date, end=pd.to_datetime(s_end), freq='D')
+    df_time = pd.DataFrame({'Sales_Date': timeline})
+
+    cy_daily = pd.merge(df_time, cy_daily, on='Sales_Date', how='left').fillna(0)
+    py_daily = pd.merge(df_time, py_daily, on='Sales_Date', how='left').fillna(0)
+
+    cy_daily['CY'] = cy_daily[bv_col].cumsum() / 1000
+    py_daily['PY'] = py_daily[bv_col].cumsum() / 1000
+    
+    df_curve = pd.DataFrame({'Sales_Date': timeline, 'CY': cy_daily['CY'], 'PY': py_daily['PY']})
+    df_curve['Gap'] = df_curve['CY'] - df_curve['PY']
+    return df_curve
+
+def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
+    if df_curve is None or df_curve.empty: return go.Figure()
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
+    
+    # 1. Cumulative Lines
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3)), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash')), row=1, col=1)
+    
+    # 2. Variance Area
+    df_curve['Gap_Pos'] = df_curve['Gap'].clip(lower=0)
+    df_curve['Gap_Neg'] = df_curve['Gap'].clip(upper=0)
+    
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], name='Ahead (+)', fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], name='Behind (-)', fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False), row=2, col=1)
+
+    # 3. Max Gap Annotation
+    max_idx = df_curve['Gap'].abs().idxmax()
+    if pd.notna(max_idx):
+        max_row = df_curve.loc[max_idx]
+        fig.add_annotation(
+            x=max_row['Sales_Date'], y=max_row['CY'],
+            text=f"<b>Max Gap: {max_row['Sales_Date'].strftime('%Y-%b-%d')}</b><br>CY: {curr_symbol}{max_row['CY']:,.0f}k<br>PY: {curr_symbol}{max_row['PY']:,.0f}k<br>Diff: {curr_symbol}{max_row['Gap']:+,.0f}k",
+            showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="#A64B35",
+            ax=0, ay=-60, bgcolor="white", bordercolor="#A64B35", borderwidth=1.5, row=1, col=1
+        )
+        
+    # 4. Zero-Crossing Points (Catch up points)
+    sign = np.sign(df_curve['Gap'].round(1))
+    signchange = ((np.roll(sign, 1) - sign) != 0).astype(int)
+    signchange[0] = 0
+    crosses = df_curve.index[signchange == 1].tolist()
+    
+    for idx in crosses:
+        if abs(df_curve.loc[idx, 'Gap']) < 5: continue # Ignore micro fluctuations
+        c_date, curr_gap = df_curve.loc[idx, 'Sales_Date'], df_curve.loc[idx, 'Gap']
+        prev_gap = df_curve.loc[idx-1, 'Gap']
+        
+        if prev_gap > 0 and curr_gap < 0: txt = f"📉 PY catches up<br>{c_date.strftime('%b %d')}"
+        elif prev_gap < 0 and curr_gap > 0: txt = f"🚀 CY overtakes<br>{c_date.strftime('%b %d')}"
+        else: continue
+            
+        fig.add_annotation(x=c_date, y=0, text=txt, showarrow=True, arrowhead=1, ax=0, ay=-40 if curr_gap>0 else 40, bgcolor="rgba(255,255,255,0.9)", bordercolor="gray", borderwidth=1, row=2, col=1)
+
+    fig.update_layout(
+        title=dict(text="<b>Cumulative Pacing Trajectory & Variance Tracking</b>", font=dict(family="Playfair Display", size=18)),
+        hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+        legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'), margin=dict(t=80, b=10)
+    )
+    
+    # Format X axes as Year/Month
+    fig.update_xaxes(dtick="M1", tickformat="%Y-%b", showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=1, col=1)
+    fig.update_xaxes(dtick="M1", tickformat="%Y-%b", showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=2, col=1)
+    
+    fig.update_yaxes(title_text=f"Cumulative Vol. ({curr_symbol}k)", showgrid=True, gridcolor='rgba(0,0,0,0.05)', zeroline=False, row=1, col=1)
+    fig.update_yaxes(title_text="Gap vs PY", showgrid=True, gridcolor='rgba(0,0,0,0.05)', zeroline=True, zerolinecolor='black', row=2, col=1)
+    
+    return fig
+
+# --- Plotting Bar & Pie ---
 def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
@@ -208,8 +322,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     if cons_mode == "Quick Select (Year/Season)":
         py_y_val = sel_year - 1
         py_c_start, py_c_end = None, None
+        base_cy_year = sel_year
     else:
         py_y_val = None
+        base_cy_year = cons_start.year
         try:
             py_c_start, py_c_end = cons_start.replace(year=cons_start.year-1), cons_end.replace(year=cons_end.year-1)
         except ValueError:
@@ -229,7 +345,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     c2.metric("Paced HN", f"{cy_hn:,.0f}", f"{(cy_hn-py_hn)/py_hn*100:.1f}%" if py_hn>0 else None)
     c3.metric("Current ADR", f"{currency_symbol}{cy_adr:,.0f}", f"{(cy_adr-py_adr)/py_adr*100:.1f}%" if py_adr>0 else None)
 
-    # --- Charts ---
+    # --- Static Charts (Bar & Pie) ---
     mkt_t = ", ".join(sel_markets) if sel_markets else "All Markets"
     if cons_mode == "Quick Select (Year/Season)": cons_desc = f"{season} {sel_year}"
     else: cons_desc = f"{cons_start} to {cons_end}"
@@ -243,7 +359,18 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with col_right: st.plotly_chart(fig_pie, use_container_width=True)
 
     # ==========================================
-    # 🌟 5. AI Macro & Strategy Advisor
+    # 🌟 5. Dynamic Cumulative Pacing Trajectory
+    # ==========================================
+    st.divider()
+    st.markdown("### 🎢 Cumulative Booking Pacing & Variance Trajectory")
+    
+    df_curve = get_pacing_curve_data(df, base_cy_year, cons_mode, season, cons_start, cons_end, sel_markets, sel_ta, bv_col, end_date)
+    fig_curve = draw_pacing_curve(df_curve, cy_label, py_label, currency_symbol)
+    st.plotly_chart(fig_curve, use_container_width=True)
+
+
+    # ==========================================
+    # 🌟 6. AI Macro & Strategy Advisor
     # ==========================================
     st.divider()
     st.markdown("### 🤖 Strategy & Macro Advisor")
