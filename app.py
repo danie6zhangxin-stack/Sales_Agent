@@ -89,9 +89,9 @@ def load_and_clean(file):
         
     return data
 
-# --- 🌟 Pacing Curve & Variance Generator (NEW) ---
-def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_markets, sel_ta, bv_col, s_end):
-    # Filter CY (Ignore Sales Date initially to get full history up to s_end)
+# --- 🌟 Pacing Curve & Variance Generator (FIXED ValueError) ---
+def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_markets, sel_ta, sel_dest, sel_resort, bv_col, s_end):
+    # Filter CY 
     d_cy = df[df['Year'] == cy_year].copy()
     if cons_mode == "Quick Select (Year/Season)":
         if season == "S1 (Jan-Jun)": d_cy = d_cy[d_cy['Month_Num'].between(1, 6)]
@@ -101,9 +101,11 @@ def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_ma
         
     if sel_markets: d_cy = d_cy[d_cy['Market'].isin(sel_markets)]
     if sel_ta: d_cy = d_cy[d_cy['TA_Group'].isin(sel_ta)]
+    if sel_dest: d_cy = d_cy[d_cy['Dest_Type'].isin(sel_dest)]
+    if sel_resort: d_cy = d_cy[d_cy['Resort'].isin(sel_resort)]
     d_cy = d_cy[d_cy['Sales_Date'].dt.date <= s_end]
 
-    # Filter PY (Shifted by 1 year)
+    # Filter PY 
     d_py = df[df['Year'] == cy_year - 1].copy()
     if cons_mode == "Quick Select (Year/Season)":
         if season == "S1 (Jan-Jun)": d_py = d_py[d_py['Month_Num'].between(1, 6)]
@@ -115,35 +117,35 @@ def get_pacing_curve_data(df, cy_year, cons_mode, season, c_start, c_end, sel_ma
         
     if sel_markets: d_py = d_py[d_py['Market'].isin(sel_markets)]
     if sel_ta: d_py = d_py[d_py['TA_Group'].isin(sel_ta)]
+    if sel_dest: d_py = d_py[d_py['Dest_Type'].isin(sel_dest)]
+    if sel_resort: d_py = d_py[d_py['Resort'].isin(sel_resort)]
     
     try: py_s_end = s_end.replace(year=s_end.year-1)
     except ValueError: py_s_end = s_end - datetime.timedelta(days=365)
     d_py = d_py[d_py['Sales_Date'].dt.date <= py_s_end]
 
-    # Aggregate & Cumulative sum
     cy_daily = d_cy.groupby('Sales_Date')[bv_col].sum().reset_index()
     py_daily = d_py.groupby('Sales_Date')[bv_col].sum().reset_index()
 
-    # Shift PY Sales Dates forward 1 year to align axes!
     py_daily['Sales_Date'] = py_daily['Sales_Date'] + pd.DateOffset(years=1)
 
     if cy_daily.empty and py_daily.empty: return None
 
-    # Create master timeline
     min_date = min(cy_daily['Sales_Date'].min(), py_daily['Sales_Date'].min())
     if pd.isna(min_date): return None
     
     timeline = pd.date_range(start=min_date, end=pd.to_datetime(s_end), freq='D')
     df_time = pd.DataFrame({'Sales_Date': timeline})
 
+    # 🌟 重构的健壮合并逻辑，彻底规避 ValueError
     cy_daily = pd.merge(df_time, cy_daily, on='Sales_Date', how='left').fillna(0)
     py_daily = pd.merge(df_time, py_daily, on='Sales_Date', how='left').fillna(0)
 
-    cy_daily['CY'] = cy_daily[bv_col].cumsum() / 1000
-    py_daily['PY'] = py_daily[bv_col].cumsum() / 1000
-    
-    df_curve = pd.DataFrame({'Sales_Date': timeline, 'CY': cy_daily['CY'], 'PY': py_daily['PY']})
+    df_curve = df_time.copy()
+    df_curve['CY'] = cy_daily[bv_col].cumsum() / 1000
+    df_curve['PY'] = py_daily[bv_col].cumsum() / 1000
     df_curve['Gap'] = df_curve['CY'] - df_curve['PY']
+    
     return df_curve
 
 def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
@@ -151,18 +153,15 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
     
-    # 1. Cumulative Lines
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash')), row=1, col=1)
     
-    # 2. Variance Area
     df_curve['Gap_Pos'] = df_curve['Gap'].clip(lower=0)
     df_curve['Gap_Neg'] = df_curve['Gap'].clip(upper=0)
     
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], name='Ahead (+)', fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], name='Behind (-)', fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False), row=2, col=1)
 
-    # 3. Max Gap Annotation
     max_idx = df_curve['Gap'].abs().idxmax()
     if pd.notna(max_idx):
         max_row = df_curve.loc[max_idx]
@@ -173,14 +172,13 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
             ax=0, ay=-60, bgcolor="white", bordercolor="#A64B35", borderwidth=1.5, row=1, col=1
         )
         
-    # 4. Zero-Crossing Points (Catch up points)
     sign = np.sign(df_curve['Gap'].round(1))
     signchange = ((np.roll(sign, 1) - sign) != 0).astype(int)
     signchange[0] = 0
     crosses = df_curve.index[signchange == 1].tolist()
     
     for idx in crosses:
-        if abs(df_curve.loc[idx, 'Gap']) < 5: continue # Ignore micro fluctuations
+        if abs(df_curve.loc[idx, 'Gap']) < 5: continue 
         c_date, curr_gap = df_curve.loc[idx, 'Sales_Date'], df_curve.loc[idx, 'Gap']
         prev_gap = df_curve.loc[idx-1, 'Gap']
         
@@ -196,16 +194,14 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol):
         legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'), margin=dict(t=80, b=10)
     )
     
-    # Format X axes as Year/Month
     fig.update_xaxes(dtick="M1", tickformat="%Y-%b", showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=1, col=1)
     fig.update_xaxes(dtick="M1", tickformat="%Y-%b", showgrid=True, gridcolor='rgba(0,0,0,0.05)', row=2, col=1)
-    
     fig.update_yaxes(title_text=f"Cumulative Vol. ({curr_symbol}k)", showgrid=True, gridcolor='rgba(0,0,0,0.05)', zeroline=False, row=1, col=1)
     fig.update_yaxes(title_text="Gap vs PY", showgrid=True, gridcolor='rgba(0,0,0,0.05)', zeroline=True, zerolinecolor='black', row=2, col=1)
     
     return fig
 
-# --- Plotting Bar & Pie ---
+# --- 🌟 Plotting Bar & Pie (FIXED Horizontal Text) ---
 def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
@@ -218,9 +214,13 @@ def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     
     fig_bar = go.Figure()
     text_cy = [f"<b>{cy:,.0f}k<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{cy:,.0f}k</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
-    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='auto', textfont=dict(size=14)))
-    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{v:,.0f}k</b>" for v in combined[f'{bv_col}_PY']], textposition='auto', textfont=dict(size=14)))
-    fig_bar.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18)), barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=70, b=0), legend=dict(orientation="h", y=1.1, x=0.5, xanchor='center'), yaxis=dict(visible=False))
+    
+    # 🌟 强制 textposition='outside' 和 textangle=0 解决重叠竖排问题
+    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#1D263B', text=text_cy, textposition='outside', textangle=0, textfont=dict(size=12)))
+    fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{v:,.0f}k</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, textfont=dict(size=12)))
+    
+    # 🌟 加大 margin-top 确保顶部标签不被截断
+    fig_bar.update_layout(title=dict(text=dynamic_title, font=dict(family="Playfair Display", size=18)), barmode='group', plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', margin=dict(t=100, b=0), legend=dict(orientation="h", y=1.15, x=0.5, xanchor='center'), yaxis=dict(visible=False))
 
     fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"<b>{cy_label} Share</b>", color_discrete_sequence=['#1D263B', '#A64B35', '#A4B6B0', '#EAECEF'])
     fig_pie.update_traces(textposition='inside', textinfo='percent+label', hole=.3)
@@ -263,6 +263,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         bv_col = "BV_Euro" if "Euro" in bv_selection else "BV_Locale"
         currency_symbol = "€" if "Euro" in bv_selection else ""
         
+        # 🌟 补充的 Destination Type 和 Resort 过滤维度
+        sel_dest = st.multiselect("Destination Type Select", sorted(df['Dest_Type'].unique()))
+        sel_resort = st.multiselect("Resort Select", sorted(df['Resort'].unique()))
         sel_markets = st.multiselect("Market Select", sorted(df['Market'].unique()))
         sel_ta = st.multiselect("Travel Agency Select", sorted(df['TA_Group'].unique()))
 
@@ -315,6 +318,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             
         if sel_markets: d = d[d['Market'].isin(sel_markets)]
         if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
+        if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
+        if sel_resort: d = d[d['Resort'].isin(sel_resort)]
         return d
 
     df_cy_base = apply_ui_filters(df, cons_mode, sel_year, season, cons_start, cons_end, start_date, end_date)
@@ -364,10 +369,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.divider()
     st.markdown("### 🎢 Cumulative Booking Pacing & Variance Trajectory")
     
-    df_curve = get_pacing_curve_data(df, base_cy_year, cons_mode, season, cons_start, cons_end, sel_markets, sel_ta, bv_col, end_date)
+    df_curve = get_pacing_curve_data(df, base_cy_year, cons_mode, season, cons_start, cons_end, sel_markets, sel_ta, sel_dest, sel_resort, bv_col, end_date)
     fig_curve = draw_pacing_curve(df_curve, cy_label, py_label, currency_symbol)
     st.plotly_chart(fig_curve, use_container_width=True)
-
 
     # ==========================================
     # 🌟 6. AI Macro & Strategy Advisor
