@@ -35,13 +35,13 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# --- 3. Core Data Cleaning (精准映射版) ---
+# --- 3. Core Data Cleaning ---
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
     data.columns = [col.strip() for col in data.columns]
     
-    # 🌟 1. VIP 精准映射：直接把你的真实列名绑死
+    # 🌟 1. VIP 精准映射：欧元与本币的真实列名已全部绑死！
     mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
@@ -52,12 +52,13 @@ def load_and_clean(file):
         'REF_DESTINATION[Resort]': 'Resort',
         'REF_CML_AGENCY[Group_TA_cml]': 'TA_Group',
         'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
-        '[BVSTS___final]': 'BV_Euro',   # <--- 你的欧元专属列名
+        '[BVSTS___final]': 'BV_Euro',        # 欧元的列名
+        '[BVSTS_loc_final]': 'BV_Locale',  # <--- 你提供的精准本币列名！
         '[HN_final]': 'HN'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
-    # 🌟 2. 备用模糊匹配：抓取 Locale 或者其他可能的变体
+    # 🌟 2. 备用模糊匹配 (作为额外的安全网)
     for col in data.columns:
         if col in ['BV_Euro', 'BV_Locale', 'HN', 'Sales_Date']: continue
         c_up = col.upper()
@@ -70,7 +71,7 @@ def load_and_clean(file):
         elif 'SALES_DATE' in c_up and 'Sales_Date' not in data.columns: 
             data.rename(columns={col: 'Sales_Date'}, inplace=True)
             
-    # 🌟 防爆底线
+    # 防爆底线：如果数据里确实缺列，才补 0
     if 'BV_Euro' not in data.columns: data['BV_Euro'] = 0.0
     if 'BV_Locale' not in data.columns: data['BV_Locale'] = 0.0
     if 'HN' not in data.columns: data['HN'] = 0.0
@@ -90,7 +91,7 @@ def load_and_clean(file):
         
     return data
 
-# --- 🌟 Plotting: Bar & Pie ---
+# --- Plotting ---
 def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
     cy_g = cy_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
     py_g = py_df.groupby('Dest_Type')[[bv_col]].sum().reset_index()
@@ -113,7 +114,7 @@ def draw_charts(cy_df, py_df, cy_label, py_label, bv_col, dynamic_title):
 
     return fig_bar, fig_pie
 
-# --- 🌟 AI Insights Generator ---
+# --- AI Insights Generator ---
 def generate_macro_insights(cy_data, py_data, context_desc, bv_col):
     cy_total = cy_data[bv_col].sum() / 1000
     py_total = py_data[bv_col].sum() / 1000
