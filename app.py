@@ -30,6 +30,7 @@ CSS_STYLE = """
         font-weight: 700;
         margin: 10px 0 20px 0;
         box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        letter-spacing: 1px;
     }
     
     /* 🌟 Top Control Panel */
@@ -76,7 +77,7 @@ def get_web_search_context(query):
             results = list(ddgs.text(query, max_results=3))
             if not results: return "No relevant news found."
             return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-    except Exception as e:
+    except Exception:
         return "Web search currently unavailable."
 
 # --- 3. Core Data Cleaning ---
@@ -104,6 +105,13 @@ def load_and_clean(file):
     if 'HN' not in data.columns: data['HN'] = 0.0
     for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
         if col in data.columns: data[col] = data[col].astype(str).str.strip()
+    
+    # 🌟 Rename specific destinations & filter out "Others"
+    if 'Dest_Type' in data.columns:
+        data['Dest_Type'] = data['Dest_Type'].str.replace('Interzone mountain', 'IZ Mountain', case=False)
+        data['Dest_Type'] = data['Dest_Type'].str.replace('Interzone sun', 'IZ Sun', case=False)
+        data = data[~data['Dest_Type'].str.lower().str.contains('other', na=False)]
+
     for col in ['BV_Euro', 'BV_Locale', 'HN']:
         data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', '').replace(' ', ''), errors='coerce').fillna(0)
     data['Year'] = pd.to_numeric(data['Year'], errors='coerce').fillna(0).astype(int)
@@ -112,7 +120,6 @@ def load_and_clean(file):
     return data
 
 def format_volume(val):
-    """ Helper to format tooltip strings natively """
     if abs(val) >= 1_000_000: return f"{val/1_000_000:,.1f}M"
     elif abs(val) >= 1_000: return f"{val/1_000:,.1f}k"
     return f"{val:,.0f}"
@@ -122,14 +129,15 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
     
-    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash')), row=1, col=1)
+    # 🌟 Applied precise hovertemplate (%{y:,.1f}) to lines
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     
     df_curve['Gap_Pos'] = df_curve['Gap'].clip(lower=0)
     df_curve['Gap_Neg'] = df_curve['Gap'].clip(upper=0)
     
-    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False, hovertemplate='<b>Ahead (+):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False, hovertemplate='<b>Behind (-):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
     
     max_idx = df_curve['Gap'].abs().idxmax()
     if pd.notna(max_idx):
@@ -147,16 +155,15 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     signchange[0] = 0
     crosses = df_curve.index[signchange == 1].tolist()
     for idx in crosses:
-        if abs(df_curve.loc[idx, 'Gap']) < 5000: continue # ignore micro crossings
+        if abs(df_curve.loc[idx, 'Gap']) < 5000: continue 
         c_date, curr_gap, prev_gap = df_curve.loc[idx, 'Sales_Date'], df_curve.loc[idx, 'Gap'], df_curve.loc[idx-1, 'Gap']
         if prev_gap > 0 and curr_gap < 0: txt = f"📉 PY catches up<br>{c_date.strftime('%b %d')}"
         elif prev_gap < 0 and curr_gap > 0: txt = f"🚀 CY overtakes<br>{c_date.strftime('%b %d')}"
         else: continue
         fig.add_annotation(x=c_date, y=0, text=txt, showarrow=True, arrowhead=1, ax=0, ay=-40 if curr_gap>0 else 40, bgcolor="rgba(255,255,255,0.9)", bordercolor="gray", borderwidth=1, row=2, col=1)
 
-    # 🌟 Point 2: Native K/M formatting instead of absolute 10,000k
-    fig.update_yaxes(tickformat=".2s", row=1, col=1)
-    fig.update_yaxes(tickformat=".2s", row=2, col=1)
+    fig.update_yaxes(ticksuffix="k", tickformat=".2s", row=1, col=1)
+    fig.update_yaxes(ticksuffix="k", tickformat=".2s", row=2, col=1)
     
     fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
@@ -169,17 +176,19 @@ def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text)
     
     fig = go.Figure()
     colors = ['rgba(40,167,69,0.8)' if val >= 0 else 'rgba(220,53,69,0.8)' for val in df_weekly['Weekly_Gap']]
-    fig.add_trace(go.Bar(x=df_weekly['Sales_Date'], y=df_weekly['Weekly_Gap'], marker_color=colors, text=[f"{format_volume(v)}" for v in df_weekly['Weekly_Gap']], textposition='outside'))
-    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly", mode='lines+markers', line=dict(color='#1D263B', width=2)))
-    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash')))
     
-    fig.update_yaxes(tickformat=".2s")
+    # 🌟 Fixed Trace Name & Hover Template
+    fig.add_trace(go.Bar(x=df_weekly['Sales_Date'], y=df_weekly['Weekly_Gap'], name='Weekly Variance', marker_color=colors, text=[f"{format_volume(v)}" for v in df_weekly['Weekly_Gap']], textposition='outside', hovertemplate='<b>Variance:</b> %{y:,.1f}<extra></extra>'))
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly", mode='lines+markers', line=dict(color='#1D263B', width=2), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'))
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'))
+    
+    fig.update_yaxes(ticksuffix="k", tickformat=".2s")
     
     fig.update_layout(title=dict(text=f"<b>⚡ Weekly Incremental Booking Velocity</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
     return fig
 
-# --- 5. AI Advisor with Conversational Memory (Point 3 Fix) ---
+# --- 5. AI Advisor with Conversational Memory ---
 def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, search_context, chat_history, current_prompt):
     cy_sum = cy_df.groupby('Dest_Type')[bv_col].sum() / 1000
     py_sum = py_df.groupby('Dest_Type')[bv_col].sum() / 1000
@@ -200,14 +209,12 @@ def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, sear
     🌍 REAL-TIME WEB SEARCH/NEWS: {search_context}
     
     RULES:
-    1. If the user asks a follow-up question, DO NOT repeat the entire table summary. Directly address their new specific point (e.g., digging deeper into Esap Mountain).
-    2. Act like a human partner. Be highly analytical, empathetic, and forward-looking. 
+    1. If the user asks a follow-up question, DO NOT repeat the entire table summary. Directly address their new specific point.
+    2. Be highly analytical, empathetic, and forward-looking. 
     3. Use the conversation history provided to maintain context.
     """
     
     messages = [SystemMessage(content=sys_prompt)]
-    
-    # 🌟 Load Memory: Build conversation history
     for msg in chat_history:
         if msg["role"] == "user": messages.append(HumanMessage(content=msg["content"]))
         elif msg["role"] == "assistant": messages.append(AIMessage(content=msg["content"]))
@@ -294,14 +301,15 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, 
                           c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
 
-    st.markdown(f"<div class='header-box'>Executive Booking Pacing: {cy_label} vs {py_label}</div>", unsafe_allow_html=True)
+    # 🌟 Centralized Master Title
+    st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     chart_info = f"Currency: {bv_sel} | Market: {mkt_txt} | Cons: {cons_desc}"
 
-    # 🌟 Point 1: Modular Tabs UI
     tab1, tab2, tab3 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🤖 Strategic AI Advisor"])
 
     with tab1:
+        st.markdown(f"<h3 style='margin-bottom:20px;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         cy_v, py_v = df_cy[bv_col].sum(), df_py[bv_col].sum()
         cy_h, py_h = df_cy['HN'].sum(), df_py['HN'].sum()
@@ -314,9 +322,14 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             cy_g = df_cy.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             py_g = df_py.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
+            
+            # 🌟 Precise percentage embedded in Bar text
+            combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
+            text_cy = [f"<b>{format_volume(cy)}<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{format_volume(cy)}</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
+            
             fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#051C2C', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_CY']], textposition='outside', textangle=0))
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY'], name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside', textangle=0, hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY'], name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'))
             fig_bar.update_yaxes(tickformat=".2s")
             fig_bar.update_layout(title=f"Booking Pace by Dest Type<br><sup style='color:gray;'>{chart_info}</sup>", barmode='group', margin=dict(t=100))
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -337,7 +350,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             c_d = pd.merge(df_t, c_d, on='Sales_Date', how='left').fillna(0)
             p_d = pd.merge(df_t, p_d, on='Sales_Date', how='left').fillna(0)
             res = df_t.copy()
-            # 🌟 Use absolute values for Plotly native formatting
             res['CY_inc'] = c_d[bv_col]; res['PY_inc'] = p_d[bv_col]
             res['CY'] = res['CY_inc'].cumsum(); res['PY'] = res['PY_inc'].cumsum(); res['Gap'] = res['CY'] - res['PY']
             return res
@@ -348,24 +360,29 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
     with tab3:
         if "messages" not in st.session_state: st.session_state.messages = []
-        for m in st.session_state.messages:
-            with st.chat_message(m["role"]): st.markdown(m["content"])
+        
+        # 🌟 Chat interface properly scoped and grouped for perfect flow
+        chat_container = st.container()
+        
+        with chat_container:
+            for m in st.session_state.messages:
+                with st.chat_message(m["role"]): st.markdown(m["content"])
 
         if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Follow up on Esap Mountain...)"):
+            # Update and display immediately inside container
             st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"): st.write(prompt)
-            with st.chat_message("assistant"):
-                with st.spinner("Analyzing context & browsing trends..."):
-                    search_result = get_web_search_context(prompt)
-                    
-                    # 🌟 Pass chat history to the engine for contextual memory
-                    insights = generate_macro_insights_with_memory(
-                        df_cy, df_py, chart_info, bv_col, search_result, 
-                        st.session_state.messages[:-1], prompt
-                    )
-                    
-                    st.info(insights)
-                    st.session_state.messages.append({"role": "assistant", "content": insights})
+            with chat_container:
+                with st.chat_message("user"): st.write(prompt)
+                
+                with st.chat_message("assistant"):
+                    with st.spinner("Analyzing context & browsing trends..."):
+                        search_result = get_web_search_context(prompt)
+                        insights = generate_macro_insights_with_memory(
+                            df_cy, df_py, chart_info, bv_col, search_result, 
+                            st.session_state.messages[:-1], prompt
+                        )
+                        st.info(insights)
+                        st.session_state.messages.append({"role": "assistant", "content": insights})
 
 else:
     welcome_html = """
