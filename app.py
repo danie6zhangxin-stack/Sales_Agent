@@ -9,7 +9,9 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import datetime
 
+# =================================================================
 # --- 1. Executive Visual Configuration (McKinsey Strategic UI) ---
+# =================================================================
 st.set_page_config(page_title="ClubMed Executive Intelligence", layout="wide", page_icon="Ψ")
 
 CSS_STYLE = """
@@ -43,7 +45,14 @@ CSS_STYLE = """
         margin-bottom: 20px;
     }
     
-    div[data-testid="stMetric"] { background-color: white; border-radius: 6px; padding: 15px 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border-top: 3px solid var(--cm-terracotta); border-left: 4px solid var(--cm-blue); }
+    div[data-testid="stMetric"] { 
+        background-color: white; 
+        border-radius: 6px; 
+        padding: 15px 20px; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
+        border-top: 3px solid var(--cm-terracotta); 
+        border-left: 4px solid var(--cm-blue); 
+    }
     
     /* 🌟 Professional Tabs */
     div[data-testid="stTabs"] button {
@@ -62,7 +71,9 @@ CSS_STYLE = """
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
-# --- 2. AI Engine & Web Search Initialization ---
+# =================================================================
+# --- 2. AI Engine Initialization ---
+# =================================================================
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
@@ -80,11 +91,15 @@ def get_web_search_context(query):
     except Exception:
         return "Web search currently unavailable."
 
-# --- 3. Core Data Cleaning ---
+# =================================================================
+# --- 3. Core Data Cleaning & Logic Processing ---
+# =================================================================
 @st.cache_data
 def load_and_clean(file):
     data = pd.read_csv(file, low_memory=False)
     data.columns = [col.strip() for col in data.columns]
+    
+    # 🌟 映射原有维度及新增的5个全渠道细分维度
     mapping = {
         'CONSUMPTION_CALENDAR[Month Name]': 'Month',
         'CONSUMPTION_CALENDAR[Consumption_month_num]': 'Month_Num',
@@ -97,16 +112,50 @@ def load_and_clean(file):
         'REF_DESTINATION[Destination type Asia]': 'Dest_Type',
         '[BVSTS___final]': 'BV_Euro',        
         '[BVSTS_loc_final]': 'BV_Locale',  
-        '[HN_final]': 'HN'
+        '[HN_final]': 'HN',
+        # --- 新增的 5 个维度底稿字段 ---
+        'REF_SALES_SEGMENT[Segment_type]': 'Segment',
+        'Channel Group': 'Channel_Group',
+        'Team Group': 'Team_Group',
+        'reChannel': 'reChannel',
+        'REF_OPERATION[Contact1_M&E]': 'Sales_ME',
+        'BD': 'Sales_BD'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
+    
     if 'BV_Euro' not in data.columns: data['BV_Euro'] = 0.0
     if 'BV_Locale' not in data.columns: data['BV_Locale'] = 0.0
     if 'HN' not in data.columns: data['HN'] = 0.0
-    for col in ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month']:
-        if col in data.columns: data[col] = data[col].astype(str).str.strip()
     
-    # 🌟 Rename specific destinations & filter out "Others"
+    # 标准字符串清洗与去空格
+    str_cols = ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month', 
+                'Segment', 'Channel_Group', 'Team_Group', 'reChannel', 'Sales_ME', 'Sales_BD']
+    for col in str_cols:
+        if col in data.columns: 
+            data[col] = data[col].astype(str).str.strip()
+            
+    # 🌟 核心财务清洗逻辑：针对 M&E 团队单子无数据的列进行平滑处理，防止系统报错或出现空白
+    if 'Segment' in data.columns:
+        # 如果是 M&E 业务，其渠道组、团队组、细分渠道及个人销售皆为空，将其统一填充为明确的横杠 '-' 保持界面美观
+        for c in ['Channel_Group', 'Team_Group', 'reChannel', 'Sales_BD']:
+            if c in data.columns:
+                data.loc[data['Segment'].str.lower() == 'm&e', c] = '-'
+                data[c] = data[c].replace(['nan', 'None', '', '(blank)'], '-')
+                
+        # 同理，如果是散客Individual业务，其M&E负责人肯定为空，也做平滑填充
+        if 'Sales_ME' in data.columns:
+            data.loc[data['Segment'].str.lower() != 'm&e', 'Sales_ME'] = '-'
+            data['Sales_ME'] = data['Sales_ME'].replace(['nan', 'None', '', '(blank)'], '-')
+
+        # 🌟 核心功能优化：动态合并 M&E 销售和 Individual 销售人员到统一的【Salesperson】列
+        data['Salesperson'] = np.where(
+            data['Segment'].str.lower().str.contains('m&e|mice', na=False), 
+            data['Sales_ME'], 
+            data['Sales_BD']
+        )
+        data['Salesperson'] = data['Salesperson'].replace(['nan', 'None', '', '(blank)'], '-')
+
+    # 规范化特定目的地的命名并滤除 "Others"
     if 'Dest_Type' in data.columns:
         data['Dest_Type'] = data['Dest_Type'].str.replace('Interzone mountain', 'IZ Mountain', case=False)
         data['Dest_Type'] = data['Dest_Type'].str.replace('Interzone sun', 'IZ Sun', case=False)
@@ -115,6 +164,7 @@ def load_and_clean(file):
     for col in ['BV_Euro', 'BV_Locale', 'HN']:
         data[col] = pd.to_numeric(data[col].astype(str).str.replace(',', '').replace(' ', ''), errors='coerce').fillna(0)
     data['Year'] = pd.to_numeric(data['Year'], errors='coerce').fillna(0).astype(int)
+    
     if 'Sales_Date' in data.columns: data['Sales_Date'] = pd.to_datetime(data['Sales_Date'], errors='coerce')
     if 'Cons_Date' in data.columns: data['Cons_Date'] = pd.to_datetime(data['Cons_Date'], errors='coerce')
     return data
@@ -124,12 +174,13 @@ def format_volume(val):
     elif abs(val) >= 1_000: return f"{val/1_000:,.1f}k"
     return f"{val:,.0f}"
 
+# =================================================================
 # --- 4. Plotting & Chart Generation ---
+# =================================================================
 def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
     
-    # 🌟 Precise Hovertemplate with 1 decimal
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     
@@ -162,7 +213,6 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
         else: continue
         fig.add_annotation(x=c_date, y=0, text=txt, showarrow=True, arrowhead=1, ax=0, ay=-40 if curr_gap>0 else 40, bgcolor="rgba(255,255,255,0.9)", bordercolor="gray", borderwidth=1, row=2, col=1)
 
-    # 🌟 Format Y-axis with comma and 'k' suffix for all ranges
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=1, col=1)
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=2, col=1)
     
@@ -178,19 +228,18 @@ def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text)
     fig = go.Figure()
     colors = ['rgba(40,167,69,0.8)' if val >= 0 else 'rgba(220,53,69,0.8)' for val in df_weekly['Weekly_Gap']]
     
-    # 🌟 Precise Hovertemplate & Exact Name
     fig.add_trace(go.Bar(x=df_weekly['Sales_Date'], y=df_weekly['Weekly_Gap'], name='Weekly Variance', marker_color=colors, text=[f"{format_volume(v)}" for v in df_weekly['Weekly_Gap']], textposition='outside', hovertemplate='<b>Variance:</b> %{y:,.1f}<extra></extra>'))
     fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly", mode='lines+markers', line=dict(color='#1D263B', width=2), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'))
     fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'))
     
-    # 🌟 Format Y-axis with comma and 'k' suffix
     fig.update_yaxes(ticksuffix="k", tickformat=",")
-    
     fig.update_layout(title=dict(text=f"<b>⚡ Weekly Incremental Booking Velocity</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
     return fig
 
+# =================================================================
 # --- 5. AI Advisor with Conversational Memory ---
+# =================================================================
 def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, search_context, chat_history, current_prompt):
     cy_sum = cy_df.groupby('Dest_Type')[bv_col].sum() / 1000
     py_sum = py_df.groupby('Dest_Type')[bv_col].sum() / 1000
@@ -229,14 +278,17 @@ def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, sear
     except Exception as e: 
         return f"AI Advisor unavailable. Error: {e}"
 
-# ==========================================
-# 🌟 6. Main UI Flow & Routing
-# ==========================================
+# =================================================================
+# --- 6. Main UI Flow, Routing & Interconnectivity ---
+# =================================================================
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
+    # 🌟 重新布局控制面板：增加新维度的交叉筛选
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
+    
+    # 第一行：核心全局变量
     tcol1, tcol2, tcol3, tcol4, tcol5 = st.columns(5)
     with tcol1:
         bv_sel = st.selectbox("Currency", ["Euro (€)", "Locale (Original)"])
@@ -245,9 +297,21 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with tcol2: sel_mkt = st.multiselect("Source Market", sorted(df['Market'].unique()))
     with tcol3: sel_dest = st.multiselect("Dest. Type", sorted(df['Dest_Type'].unique()))
     with tcol4: sel_resort = st.multiselect("Resort", sorted(df['Resort'].unique()))
-    with tcol5: sel_ta = st.multiselect("Travel Agency", sorted(df['TA_Group'].unique()))
+    with tcol5: sel_segment = st.multiselect("Segment Type", sorted(df['Segment'].unique()))
+    
+    st.markdown("<hr style='margin: 12px 0; border: 0; border-top: 1px solid #EAECEF;'/>", unsafe_allow_html=True)
+    
+    # 第二行：全渠道与责任销售精细化控制
+    bcol1, bcol2, bcol3, bcol4, bcol5 = st.columns(5)
+    with bcol1: sel_channel = st.multiselect("Channel Group", sorted(df['Channel_Group'].unique()))
+    with bcol2: sel_team = st.multiselect("Team Group (EC/TA)", sorted(df['Team_Group'].unique()))
+    with bcol3: sel_rechannel = st.multiselect("reChannel (Detail)", sorted(df['reChannel'].unique()))
+    with bcol4: sel_ta = st.multiselect("Travel Agency", sorted(df['TA_Group'].unique()))
+    with bcol5: sel_sales = st.multiselect("Salesperson (BD / M&E)", sorted(df['Salesperson'].unique()))
+        
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # 📅 左侧 Sidebar：账期与销售窗口配置
     with st.sidebar:
         st.markdown("### 📅 Consumption Window")
         cons_mode = st.radio("Filter By:", ["Quick Select (Year/Season)", "Custom Date Range"])
@@ -261,7 +325,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 df_cons_filtered = df_cons_filtered[df_cons_filtered['Month_Num'].between(*m_range)]
             c_start, c_end = None, None
         else:
-            # 🌟 Fixed NameError Exception: Pre-declare sel_y and season
             sel_y, season = None, None
             max_c = df['Cons_Date'].max().date() if not df['Cons_Date'].dropna().empty else datetime.date.today()
             c_start = st.date_input("Cons. Start", max_c - datetime.timedelta(days=180))
@@ -277,7 +340,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         if preset == "From Sales Opening":
             start_date = df_cons_filtered['Sales_Date'].min().date() if not df_cons_filtered.empty and not pd.isna(df_cons_filtered['Sales_Date'].min()) else max_s - datetime.timedelta(days=365)
             end_date = max_s
-            st.info(f"Opening Date Detected: {start_date}")
+            st.info(f"Opening Date: {start_date}")
         elif preset == "Custom Range":
             start_date = st.date_input("Sales Start", max_s - datetime.timedelta(days=90)); end_date = st.date_input("Sales End", max_s)
         else:
@@ -287,6 +350,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         try: py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
         except: py_start, py_end = start_date - datetime.timedelta(days=365), end_date - datetime.timedelta(days=365)
 
+    # 联动数据过滤流
     def apply_filters(idf, mode, y, seas, cs, ce, ss, se):
         d = idf.copy()
         d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
@@ -295,24 +359,34 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             if seas != "All Year":
                 m_range = [1,6] if "S1" in seas else [7,12]
                 d = d[d['Month_Num'].between(*m_range)]
-        else: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+        else: 
+            d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+            
         if sel_mkt: d = d[d['Market'].isin(sel_mkt)]
         if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
         if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
         if sel_resort: d = d[d['Resort'].isin(sel_resort)]
+        # 新增的 5 个细分特征过滤
+        if sel_segment: d = d[d['Segment'].isin(sel_segment)]
+        if sel_channel: d = d[d['Channel_Group'].isin(sel_channel)]
+        if sel_team: d = d[d['Team_Group'].isin(sel_team)]
+        if sel_rechannel: d = d[d['reChannel'].isin(sel_rechannel)]
+        if sel_sales: d = d[d['Salesperson'].isin(sel_sales)]
         return d
 
     df_cy = apply_filters(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
     df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, 
                           c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
 
-    # 🌟 Centralized Master Title
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     chart_info = f"Currency: {bv_sel} | Market: {mkt_txt} | Cons: {cons_desc}"
 
     tab1, tab2, tab3 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🤖 Strategic AI Advisor"])
 
+    # =================================================================
+    # 📊 TAB 1: EXECUTIVE DASHBOARD (核心穿透及多维矩阵)
+    # =================================================================
     with tab1:
         st.markdown(f"<h3 style='margin-bottom:20px; font-weight: 700; color: #051C2C;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
@@ -327,13 +401,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             cy_g = df_cy.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             py_g = df_py.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
-            
             combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
             text_cy = [f"<b>{format_volume(cy)}<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{format_volume(cy)}</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
             
             fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY']/1000, name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside', textangle=0, hovertemplate='<b>CY:</b> %{y:,.1f}k<extra></extra>'))
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY']/1000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', textangle=0, hovertemplate='<b>PY:</b> %{y:,.1f}k<extra></extra>'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY']/1000, name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY']/1000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside'))
             fig_bar.update_yaxes(ticksuffix="k", tickformat=",")
             fig_bar.update_layout(title=f"Booking Pace by Dest Type<br><sup style='color:gray;'>{chart_info}</sup>", barmode='group', margin=dict(t=100))
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -341,6 +414,78 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"{cy_label} Share", color_discrete_sequence=['#051C2C', '#A64B35', '#A4B6B0', '#EAECEF'])
             fig_pie.update_traces(textinfo='percent+label', hole=.3); st.plotly_chart(fig_pie, use_container_width=True)
 
+        # 🌟🌟 核心增设：Channel & Salesperson 财务穿透分析透视矩阵大盘 🌟🌟
+        st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C;'>🏢 Channel & Salesperson Deep-dive Matrix</h3>", unsafe_allow_html=True)
+        
+        # 1. 顶层大口径占比计算与高亮卡片 (基于当前 Filter 后的真实动态数据)
+        total_matrix_bv = df_cy[bv_col].sum()
+        
+        # FIT vs MICE 占比
+        fit_bv = df_cy[df_cy['Segment'].str.lower().str.contains('individual|fit', na=False)][bv_col].sum()
+        mice_bv = df_cy[df_cy['Segment'].str.lower().str.contains('m&e|mice', na=False)][bv_col].sum()
+        
+        # Direct vs Indirect 占比 (采用指定的精确大口径逻辑)
+        indir_mask = df_cy['Channel_Group'].str.lower().isin(['indirect', 'indirect-ctrip', 'indirect-meituan'])
+        dir_mask = df_cy['Channel_Group'].str.lower().isin(['direct', 'semi-direct', 'mice corp'])
+        indir_bv = df_cy[indir_mask][bv_col].sum()
+        dir_bv = df_cy[dir_mask][bv_col].sum()
+
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("FIT (Individual) Share", f"{fit_bv/total_matrix_bv*100:.1f}%" if total_matrix_bv else "0.0%", f"Total FIT: {curr_sym}{format_volume(fit_bv)}", delta_color="off")
+        sc2.metric("MICE (M&E) Share", f"{mice_bv/total_matrix_bv*100:.1f}%" if total_matrix_bv else "0.0%", f"Total MICE: {curr_sym}{format_volume(mice_bv)}", delta_color="off")
+        sc3.metric("Total Direct Share", f"{dir_bv/total_matrix_bv*100:.1f}%" if total_matrix_bv else "0.0%", f"Incl. Direct/Semi/MICE Corp", delta_color="off")
+        sc4.metric("Total Indirect Share", f"{indir_bv/total_matrix_bv*100:.1f}%" if total_matrix_bv else "0.0%", f"Incl. Indirect/Ctrip/Meituan", delta_color="off")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 2. 构建 5 层级联透视矩阵数据表
+        grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel', 'Salesperson']
+        
+        cy_matrix_grp = df_cy.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
+        py_matrix_grp = df_py.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
+        
+        # 合并历年数据 (Outer join 确保即使某渠道今年无销量或去年无销量，也能完整轧出 Gap)
+        matrix_df = pd.merge(cy_matrix_grp, py_matrix_grp, on=grp_cols, how='outer', suffixes=('_CY', '_PY')).fillna(0)
+        
+        # 轧出差额绝对值 (Absolute Value) 和 增减比率 (YoY %)
+        matrix_df['BV Var'] = matrix_df[f'{bv_col}_CY'] - matrix_df[f'{bv_col}_PY']
+        matrix_df['BV YoY %'] = np.where(matrix_df[f'{bv_col}_PY'] != 0, matrix_df['BV Var'] / matrix_df[f'{bv_col}_PY'], 0)
+        
+        matrix_df['HN Var'] = matrix_df['HN_CY'] - matrix_df['HN_PY']
+        matrix_df['HN YoY %'] = np.where(matrix_df['HN_PY'] != 0, matrix_df['HN Var'] / matrix_df['HN_PY'], 0)
+        
+        # 业务优先排序：按大类 Segment 升序、渠道大小降序
+        matrix_df = matrix_df.sort_values(['Segment', 'Channel_Group', f'{bv_col}_CY'], ascending=[True, True, False])
+        
+        matrix_df.rename(columns={
+            f'{bv_col}_CY': 'CY BV', f'{bv_col}_PY': 'PY BV',
+            'HN_CY': 'CY HN', 'HN_PY': 'PY HN'
+        }, inplace=True)
+        
+        # 核心设置：转换为多重索引，Streamlit会完美呈现类似Excel透视表的左侧折叠树状结构
+        matrix_df.set_index(grp_cols, inplace=True)
+
+        # 3. 编写红涨绿跌条件格式函数 (红跌绿涨，财务敏感度视觉呈现)
+        def style_variance(val):
+            try:
+                if val > 0: return 'color: #28a745; font-weight: 600;'  # 绿色代表超前
+                elif val < 0: return 'color: #dc3545; font-weight: 600;' # 红色代表落后
+            except:
+                pass
+            return 'color: #6c757d;'
+
+        styler = matrix_df.style.format({
+            'CY BV': "{:,.0f}", 'PY BV': "{:,.0f}", 'BV Var': "{:+,.0f}", 'BV YoY %': "{:+.1%}",
+            'CY HN': "{:,.0f}", 'PY HN': "{:,.0f}", 'HN Var': "{:+,.0f}", 'HN YoY %': "{:+.1%}"
+        }).map(style_variance, subset=['BV Var', 'BV YoY %', 'HN Var', 'HN YoY %'])
+        
+        # 输出企业级高管交互数据表
+        st.dataframe(styler, use_container_width=True, height=550)
+
+# =================================================================
+# 🎢 TAB 2: TRAJECTORY & VELOCITY (趋势曲线与流速)
+# =================================================================
     with tab2:
         def get_curve(idf, cy_y, mode, seas, cs, ce, se):
             d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
@@ -362,6 +507,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(draw_pacing_curve(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
         st.plotly_chart(draw_weekly_pace_chart(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
+# =================================================================
+# 🤖 TAB 3: STRATEGIC AI ADVISOR (智能AI顾问)
+# =================================================================
     with tab3:
         if "messages" not in st.session_state: st.session_state.messages = []
         chat_container = st.container()
@@ -370,7 +518,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             for m in st.session_state.messages:
                 with st.chat_message(m["role"]): st.markdown(m["content"])
 
-        if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Follow up on Esap Mountain...)"):
+        if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Analysis on Web reChannel discrepancy...)"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
                 with st.chat_message("user"): st.write(prompt)
@@ -386,46 +534,25 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
 else:
+    # 欢迎引导界面 (未上传csv文件时展示)
     welcome_html = """
     <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #051C2C 0%, #1D263B 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
         <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
         <h1 style="font-family: 'Playfair Display', serif; font-size: 3.5rem; color: #FFFFFF; margin-bottom: 1rem; letter-spacing: 1px;">Executive Intelligence Hub</h1>
         <p style="font-family: 'Inter', sans-serif; font-size: 1.15rem; color: #A4B6B0; max-width: 650px; margin: 0 auto; line-height: 1.6; font-weight: 300;">
-            Elevate your sales strategy. Please upload your Sales Data via the sidebar to unlock multi-currency pacing analytics, consumption date precision, and AI-driven macroeconomic insights.
+            Elevate your sales strategy. Please upload your Sales Data via the sidebar to unlock multi-currency pacing analytics, consumption date precision, full channel-matrix matrix and AI-driven insights.
         </p>
     </div>
     """
     st.markdown(welcome_html, unsafe_allow_html=True)
-
     st.markdown("<br><br>", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
-    
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
     
     with c1:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday and campaign performance.</p>
-        </div>
-        ''', unsafe_allow_html=True)
-        
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday performance.</p></div>''', unsafe_allow_html=True)
     with c2:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Global Perspective</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Instantly toggle between Euro (€) and Locale currencies, with automated visualizations for Market and category shares.</p>
-        </div>
-        ''', unsafe_allow_html=True)
-        
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Omni-Channel Matrix</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Deep dive into Segment, Channel groups, Team structures, and combined Salesperson efficiency metrics instantly.</p></div>''', unsafe_allow_html=True)
     with c3:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p>
-        </div>
-        ''', unsafe_allow_html=True)
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p></div>''', unsafe_allow_html=True)
