@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 import datetime
+import textwrap
 
 # =================================================================
 # --- 1. Executive Visual Configuration (McKinsey Strategic UI) ---
@@ -51,75 +52,6 @@ CSS_STYLE = """
     div[data-testid="stTabs"] button[aria-selected="true"] {
         background-color: white; color: var(--cm-blue); border-bottom: 4px solid var(--cm-terracotta);
     }
-    
-    div[data-testid="stChatMessageAvatarUser"] { background-color: #34495E !important; }
-    div[data-testid="stChatMessageAvatarAssistant"] { background-color: #051C2C !important; }
-
-    /* 🌟 麦肯锡级财务矩阵定制级 CSS 样式 - 深度重构 */
-    .mckinsey-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 15px 0 25px 0;
-        background-color: #ffffff;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.01);
-    }
-    /* 🌟 表头双层板块切割：今年(藏青) vs 去年(灰蓝) vs 差异(陶土红) */
-    .mckinsey-table th.th-main {
-        color: white !important;
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
-        text-align: center;
-        padding: 10px 6px;
-        border: 1px solid #ffffff;
-        font-size: 0.95rem;
-    }
-    .mckinsey-table th.th-sub {
-        color: white !important;
-        font-family: 'Inter', sans-serif;
-        font-weight: 500;
-        text-align: center;
-        padding: 8px 4px;
-        border: 1px solid #ffffff;
-        font-size: 0.85rem;
-    }
-    
-    /* 🌟 数据单元格对齐与边界增强 */
-    .mckinsey-table td {
-        padding: 10px 14px;
-        border: 1px solid #EAECEF;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.85rem;
-        color: #333333;
-        text-align: right; /* 🌟 数值全量靠右顶格 */
-    }
-    /* 🌟 前3列合并单元格：文本靠左且垂直绝对居中 */
-    .mckinsey-table td.cell-merged-left {
-        text-align: left !important;
-        vertical-align: middle !important;
-        background-color: #FAFAFA;
-        font-weight: 600;
-        border-right: 1px solid #D1D5DB !important;
-    }
-    .mckinsey-table td.cell-detail-left {
-        text-align: left !important;
-    }
-    
-    /* 🌟 纵向大区间视觉隔离带（加粗分界线） */
-    .divider-col {
-        border-right: 2px solid #051C2C !important;
-    }
-    .divider-var {
-        border-right: 2px solid #A64B35 !important;
-    }
-
-    .subtotal-row { background-color: #F4F7F9 !important; font-weight: 600; }
-    .subtotal-row td { color: #051C2C !important; }
-    .total-row { background-color: #E2ECF1 !important; font-weight: 700; border-top: 1px solid #051C2C !important; border-bottom: 1px solid #051C2C !important; }
-    .total-row td { color: #051C2C !important; }
-    .grand-total-row { background-color: #D0DFE7 !important; font-weight: 800; border-top: 2px solid #051C2C !important; border-bottom: 3px double #051C2C !important; }
-    .grand-total-row td { color: #051C2C !important; }
-    .pos-var { color: #28a745 !important; font-weight: 600; }
-    .neg-var { color: #dc3545 !important; font-weight: 600; }
 </style>
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
@@ -152,13 +84,13 @@ def custom_share_card(title, cy_share, py_share, cy_abs, py_abs, curr_sym):
             PY: <span style="color: #888;">{py_share*100:.1f}%</span> <span style="color: {delta_color}; font-weight: 700; margin-left: 8px;">({delta_sign}{delta_ppts:.1f} ppts)</span>
         </div>
         <div style="font-size: 0.8rem; color: #adb5bd; margin-top: 8px; font-weight: 400;">
-            Vol: {curr_sym}{format_volume(cy_abs)} vs PY {curr_sym}{format_volume(py_abs)}
+            Vol: {format_volume(cy_abs)} vs PY {format_volume(py_abs)}
         </div>
     </div>
     """
 
+# 🌟 修复诉求 3: 所有数值列去除货币符号，纯净展示
 def fmt_val(val, is_pct=False):
-    # 🌟 修复诉求 3: 取消所有加进单元格的货币符号，统一纯数字展示
     if is_pct:
         if pd.isna(val) or np.isinf(val) or val == 0: return "0.0%"
         sign = "+" if val > 0 else ""
@@ -303,8 +235,7 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
 
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=1, col=1)
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=2, col=1)
-    fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
-                      hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
+    fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)), hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
     return fig
 
 def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text):
@@ -492,9 +423,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
         
-        # 🌟 修复诉求 4：将表格Title标准化，注入全量动态联动过滤明细标签
-        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 0px;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
-        st.markdown(f"<sup style='color:gray; font-size:0.95rem; font-weight:500; display:block; margin-bottom:15px;'>{chart_info}</sup>", unsafe_allow_html=True)
+        # 🌟 修复诉求 4：动态 Title，明确当前表格的数据口径环境
+        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
+        st.markdown(f"<div style='color:#6C757D; font-size:0.95rem; font-weight:500; margin-bottom:20px;'>{chart_info}</div>", unsafe_allow_html=True)
         
         total_cy_bv = df_cy[bv_col].sum()
         total_py_bv = df_py[bv_col].sum()
@@ -523,8 +454,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         with sc2: st.markdown(custom_share_card("MICE (M&E) Share", mice_share_cy, mice_share_py, mice_cy, mice_py, curr_sym), unsafe_allow_html=True)
         with sc3: st.markdown(custom_share_card("Total Direct Share", dir_share_cy, dir_share_py, dir_cy, dir_py, curr_sym), unsafe_allow_html=True)
         with sc4: st.markdown(custom_share_card("Total Indirect Share", indir_share_cy, indir_share_py, indir_cy, indir_py, curr_sym), unsafe_allow_html=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
 
         grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel']
         cy_matrix_grp = df_cy.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
@@ -537,33 +466,51 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         matrix_df = matrix_df.groupby(grp_cols).sum().reset_index()
         matrix_df = matrix_df.sort_values(['Segment', 'Channel_Group', f'{bv_col}_CY'], ascending=[True, True, False])
 
-        # 🌟 修复诉求 1, 2, 3, 5: 精细化合并表头颜色切割与右对齐
-        html_out = """
-        <table class="mckinsey-table">
-            <thead>
-                <tr>
-                    <th rowspan="2" class="th-main" style="width:10%; background-color:#051C2C !important;">Segment</th>
-                    <th rowspan="2" class="th-main" style="width:12%; background-color:#051C2C !important;">Channel Group</th>
-                    <th rowspan="2" class="th-main" style="width:12%; background-color:#051C2C !important;">Team Group</th>
-                    <th rowspan="2" class="th-main" style="width:14%; background-color:#051C2C !important;">reChannel</th>
-                    <th colspan="3" class="th-main" style="background-color:#0B253A !important;">Current Period</th>
-                    <th colspan="3" class="th-main" style="background-color:#3C4F5E !important; border-left:2px solid #ffffff;">Previous Period</th>
-                    <th colspan="3" class="th-main" style="background-color:#A64B35 !important; border-left:2px solid #ffffff;">Variance</th>
-                </tr>
-                <tr>
-                    <th class="th-sub" style="background-color:#0B253A !important;">BV</th>
-                    <th class="th-sub" style="background-color:#0B253A !important;">HN</th>
-                    <th class="th-sub" style="background-color:#0B253A !important; border-right:2px solid #ffffff;">ADR</th>
-                    <th class="th-sub" style="background-color:#3C4F5E !important;">BV</th>
-                    <th class="th-sub" style="background-color:#3C4F5E !important;">HN</th>
-                    <th class="th-sub" style="background-color:#3C4F5E !important; border-right:2px solid #ffffff;">ADR</th>
-                    <th class="th-sub" style="background-color:#A64B35 !important;">BV %</th>
-                    <th class="th-sub" style="background-color:#A64B35 !important;">HN %</th>
-                    <th class="th-sub" style="background-color:#A64B35 !important;">ADR %</th>
-                </tr>
-            </thead>
-            <tbody>
+        # 🌟 麦肯锡级渲染引擎：独立封装 CSS 确保不被解析器阻拦
+        html_styles = """
+        <style>
+            .mckinsey-table { width: 100%; border-collapse: collapse; margin: 5px 0 25px 0; background-color: #ffffff; }
+            .th-main { color: white; font-family: 'Inter', sans-serif; font-weight: 600; text-align: center; padding: 10px 6px; font-size: 0.95rem; border: 1px solid #ffffff;}
+            .th-sub { color: white; font-family: 'Inter', sans-serif; font-weight: 500; text-align: center; padding: 8px 4px; font-size: 0.85rem; border: 1px solid #ffffff;}
+            .th-dark { background-color: #051C2C; }
+            .th-cy { background-color: #112E43; }
+            .th-py { background-color: #5C7080; }
+            .th-var { background-color: #A64B35; }
+            .th-divider { border-right: 3px solid #ffffff !important; }
+            .mckinsey-table td { padding: 10px 14px; border: 1px solid #EAECEF; font-family: 'Inter', sans-serif; font-size: 0.85rem; color: #333333; text-align: right; }
+            
+            /* 🌟 修复诉求 1 & 2: 绝对居中合并单元格 */
+            .mckinsey-table td.cell-merged { text-align: center !important; vertical-align: middle !important; background-color: #FAFAFA; font-weight: 600; border-right: 1px solid #D1D5DB !important; border-bottom: 1px solid #EAECEF !important; }
+            .mckinsey-table td.cell-detail-left { text-align: left !important; }
+            
+            /* 🌟 修复诉求 5: 高端色块隔离线 */
+            .td-divider { border-right: 2px solid #CBD5E1 !important; }
+            
+            .subtotal-row { background-color: #F4F7F9 !important; font-weight: 600; }
+            .subtotal-row td { color: #051C2C !important; }
+            .total-row { background-color: #E2ECF1 !important; font-weight: 700; border-top: 1px solid #051C2C !important; border-bottom: 1px solid #051C2C !important; }
+            .total-row td { color: #051C2C !important; }
+            .grand-total-row { background-color: #D0DFE7 !important; font-weight: 800; border-top: 2px solid #051C2C !important; border-bottom: 3px double #051C2C !important; }
+            .grand-total-row td { color: #051C2C !important; }
+            .pos-var { color: #28a745; font-weight: 600; }
+            .neg-var { color: #dc3545; font-weight: 600; }
+        </style>
         """
+
+        html_out = [html_styles, '<table class="mckinsey-table"><thead>']
+        html_out.append('<tr>')
+        html_out.append('<th rowspan="2" class="th-main th-dark" style="width:8%;">Segment</th>')
+        html_out.append('<th rowspan="2" class="th-main th-dark" style="width:10%;">Channel Group</th>')
+        html_out.append('<th rowspan="2" class="th-main th-dark" style="width:10%;">Team Group</th>')
+        html_out.append('<th rowspan="2" class="th-main th-dark" style="width:12%;">reChannel</th>')
+        html_out.append('<th colspan="3" class="th-main th-cy">Current Period</th>')
+        html_out.append('<th colspan="3" class="th-main th-py" style="border-left: 2px solid #ffffff;">Previous Period</th>')
+        html_out.append('<th colspan="3" class="th-main th-var" style="border-left: 2px solid #ffffff;">Variance</th>')
+        html_out.append('</tr><tr>')
+        html_out.append('<th class="th-sub th-cy">BV</th><th class="th-sub th-cy">HN</th><th class="th-sub th-cy th-divider">ADR</th>')
+        html_out.append('<th class="th-sub th-py">BV</th><th class="th-sub th-py">HN</th><th class="th-sub th-py th-divider">ADR</th>')
+        html_out.append('<th class="th-sub th-var">BV %</th><th class="th-sub th-var">HN %</th><th class="th-sub th-var">ADR %</th>')
+        html_out.append('</tr></thead><tbody>')
         
         gt_cy_bv, gt_cy_hn, gt_py_bv, gt_py_hn = 0, 0, 0, 0
         segments = matrix_df['Segment'].unique()
@@ -572,162 +519,138 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             df_seg = matrix_df[matrix_df['Segment'] == seg]
             seg_cy_bv, seg_cy_hn = df_seg[f'{bv_col}_CY'].sum(), df_seg['HN_CY'].sum()
             seg_py_bv, seg_py_hn = df_seg[f'{bv_col}_PY'].sum(), df_seg['HN_PY'].sum()
-            
             gt_cy_bv += seg_cy_bv; gt_cy_hn += seg_cy_hn
             gt_py_bv += seg_py_bv; gt_py_hn += seg_py_hn
             
             channels = df_seg['Channel_Group'].unique()
             
-            # 计算这一大类Segment总共要占多少行明细（包含其下所有Channel、Team汇总行）
+            # 🌟 核心算法：预计算合并单元格 Rowspan 避免错位
             seg_rowspan = 0
+            ch_rowspan_dict = {}
+            tm_rowspan_dict = {}
+            show_ch_subtotal = {}
+            show_tm_subtotal = {}
+            
             for ch in channels:
                 df_ch = df_seg[df_seg['Channel_Group'] == ch]
                 teams = df_ch['Team_Group'].unique()
-                seg_rowspan += len(df_ch) + 1 # 明细 + Channel级汇总
-                seg_rowspan += len(teams)     # Team级汇总
-            seg_rowspan += 1                  # Segment级汇总
-            
-            first_seg_row = True
+                needs_ch_subtotal = len(teams) > 1 # 🌟 修复诉求2: 单项节点自动隐藏 Channel Subtotal
+                ch_rowspan = 0
+                
+                for tm in teams:
+                    df_tm = df_ch[df_ch['Team_Group'] == tm]
+                    needs_tm_subtotal = len(df_tm) > 1 # 🌟 修复诉求2: 单项节点自动隐藏 Team Subtotal
+                    tm_rows = len(df_tm) + (1 if needs_tm_subtotal else 0)
+                    tm_rowspan_dict[tm] = tm_rows
+                    show_tm_subtotal[tm] = needs_tm_subtotal
+                    ch_rowspan += tm_rows
+                    
+                if needs_ch_subtotal: ch_rowspan += 1
+                ch_rowspan_dict[ch] = ch_rowspan
+                show_ch_subtotal[ch] = needs_ch_subtotal
+                seg_rowspan += ch_rowspan
+                
+            seg_rowspan += 1 # 加 1 为 Segment OMNI TOTAL
+            first_seg = True
             
             for ch in channels:
                 df_ch = df_seg[df_seg['Channel_Group'] == ch]
                 ch_cy_bv, ch_cy_hn = df_ch[f'{bv_col}_CY'].sum(), df_ch['HN_CY'].sum()
                 ch_py_bv, ch_py_hn = df_ch[f'{bv_col}_PY'].sum(), df_ch['HN_PY'].sum()
-                
                 teams = df_ch['Team_Group'].unique()
-                
-                # 计算这个Channel Group下的两级合并总行数
-                ch_rowspan = len(df_ch) + len(teams) + 1
-                first_ch_row = True
+                first_ch = True
                 
                 for tm in teams:
                     df_tm = df_ch[df_ch['Team_Group'] == tm]
                     tm_cy_bv, tm_cy_hn = df_tm[f'{bv_col}_CY'].sum(), df_tm['HN_CY'].sum()
                     tm_py_bv, tm_py_hn = df_tm[f'{bv_col}_PY'].sum(), df_tm['HN_PY'].sum()
-                    
-                    # 🌟 修复诉求 1 & 2: Team Group 这一级在树状层级中的跨行合并与绝对居中
-                    tm_rowspan = len(df_tm) + 1
-                    first_tm_row = True
+                    first_tm = True
                     
                     for idx, row in df_tm.iterrows():
-                        html_out += "<tr>"
-                        if first_seg_row:
-                            html_out += f'<td rowspan="{seg_rowspan}" class="cell-merged-left" style="border-right: 2px solid #051C2C !important;">{seg}</td>'
-                            first_seg_row = False
-                        if first_ch_row:
-                            html_out += f'<td rowspan="{ch_rowspan}" class="cell-merged-left">{ch}</td>'
-                            first_ch_row = False
-                        if first_tm_row:
-                            html_out += f'<td rowspan="{tm_rowspan}" class="cell-merged-left" style="text-align:center !important; vertical-align:middle !important;">{tm}</td>'
-                            first_tm_row = False
+                        html_out.append('<tr>')
+                        if first_seg:
+                            html_out.append(f'<td rowspan="{seg_rowspan}" class="cell-merged" style="border-right: 2px solid #051C2C !important;">{seg}</td>')
+                            first_seg = False
+                        if first_ch:
+                            html_out.append(f'<td rowspan="{ch_rowspan_dict[ch]}" class="cell-merged">{ch}</td>')
+                            first_ch = False
+                        if first_tm:
+                            html_out.append(f'<td rowspan="{tm_rowspan_dict[tm]}" class="cell-merged">{tm}</td>')
+                            first_tm = False
                             
                         cy_b, cy_h = row[f'{bv_col}_CY'], row['HN_CY']
                         py_b, py_h = row[f'{bv_col}_PY'], row['HN_PY']
                         cy_a = cy_b / cy_h if cy_h > 0 else 0
                         py_a = py_b / py_h if py_h > 0 else 0
-                        
                         v_b = (cy_b - py_b) / py_b if py_b > 0 else 0
                         v_h = (cy_h - py_h) / py_h if py_h > 0 else 0
                         v_a = (cy_a - py_a) / py_a if py_a > 0 else 0
                         
-                        # 明细数据层级渲染
-                        html_out += f'<td class="cell-detail-left">{row["reChannel"]}</td>'
-                        html_out += f"<td>{fmt_val(cy_b)}</td>"
-                        html_out += f"<td>{fmt_val(cy_h)}</td>"
-                        html_out += f'<td class="divider-col">{fmt_val(cy_a)}</td>' # 视觉隔离分界线
-                        html_out += f"<td>{fmt_val(py_b)}</td>"
-                        html_out += f"<td>{fmt_val(py_h)}</td>"
-                        html_out += f'<td class="divider-col">{fmt_val(py_a)}</td>' # 视觉隔离分界线
-                        html_out += f"<td>{fmt_val(v_b, is_pct=True)}</td>"
-                        html_out += f"<td>{fmt_val(v_h, is_pct=True)}</td>"
-                        html_out += f"<td>{fmt_val(v_a, is_pct=True)}</td>"
-                        html_out += "</tr>"
+                        html_out.append(f'<td class="cell-detail-left">{row["reChannel"]}</td>')
+                        html_out.append(f"<td>{fmt_val(cy_b)}</td><td>{fmt_val(cy_h)}</td><td class='td-divider'>{fmt_val(cy_a)}</td>")
+                        html_out.append(f"<td>{fmt_val(py_b)}</td><td>{fmt_val(py_h)}</td><td class='td-divider'>{fmt_val(py_a)}</td>")
+                        html_out.append(f"<td>{fmt_val(v_b, True)}</td><td>{fmt_val(v_h, True)}</td><td>{fmt_val(v_a, True)}</td>")
+                        html_out.append('</tr>')
                         
-                    # 🌟 修复诉求 2: Team Group 维度的 Subtotal 汇总行
-                    tm_cy_a = tm_cy_bv / tm_cy_hn if tm_cy_hn > 0 else 0
-                    tm_py_a = tm_py_bv / tm_py_hn if tm_py_hn > 0 else 0
-                    tm_v_b = (tm_cy_bv - tm_py_bv) / tm_py_bv if tm_py_bv > 0 else 0
-                    tm_v_h = (tm_cy_hn - tm_py_hn) / tm_py_hn if tm_py_hn > 0 else 0
-                    tm_v_a = (tm_cy_a - tm_py_a) / tm_py_a if tm_py_a > 0 else 0
+                    if show_tm_subtotal[tm]:
+                        tm_cy_a = tm_cy_bv / tm_cy_hn if tm_cy_hn > 0 else 0
+                        tm_py_a = tm_py_bv / tm_py_hn if tm_py_hn > 0 else 0
+                        tm_v_b = (tm_cy_bv - tm_py_bv) / tm_py_bv if tm_py_bv > 0 else 0
+                        tm_v_h = (tm_cy_hn - tm_py_hn) / tm_py_hn if tm_py_hn > 0 else 0
+                        tm_v_a = (tm_cy_a - tm_py_a) / tm_py_a if tm_py_a > 0 else 0
+                        
+                        html_out.append('<tr class="subtotal-row" style="background-color:#FAFDFC !important;">')
+                        html_out.append(f'<td class="cell-detail-left" style="font-style:italic; padding-left:15px; font-weight:500;">{tm} Subtotal</td>')
+                        html_out.append(f"<td>{fmt_val(tm_cy_bv)}</td><td>{fmt_val(tm_cy_hn)}</td><td class='td-divider'>{fmt_val(tm_cy_a)}</td>")
+                        html_out.append(f"<td>{fmt_val(tm_py_bv)}</td><td>{fmt_val(tm_py_hn)}</td><td class='td-divider'>{fmt_val(tm_py_a)}</td>")
+                        html_out.append(f"<td>{fmt_val(tm_v_b, True)}</td><td>{fmt_val(tm_v_h, True)}</td><td>{fmt_val(tm_v_a, True)}</td>")
+                        html_out.append('</tr>')
+                        
+                if show_ch_subtotal[ch]:
+                    ch_cy_a = ch_cy_bv / ch_cy_hn if ch_cy_hn > 0 else 0
+                    ch_py_a = ch_py_bv / ch_py_hn if ch_py_hn > 0 else 0
+                    ch_v_b = (ch_cy_bv - ch_py_bv) / ch_py_bv if ch_py_bv > 0 else 0
+                    ch_v_h = (ch_cy_hn - ch_py_hn) / ch_py_hn if ch_py_hn > 0 else 0
+                    ch_v_a = (ch_cy_a - ch_py_a) / ch_py_a if ch_py_a > 0 else 0
                     
-                    html_out += '<tr class="subtotal-row" style="background-color:#FAFDFC !important;">'
-                    html_out += f'<td class="cell-detail-left" style="font-style:italic; padding-left:10px; font-weight:500;">{tm} Subtotal</td>'
-                    html_out += f"<td>{fmt_val(tm_cy_bv)}</td>"
-                    html_out += f"<td>{fmt_val(tm_cy_hn)}</td>"
-                    html_out += f'<td class="divider-col">{fmt_val(tm_cy_a)}</td>'
-                    html_out += f"<td>{fmt_val(tm_py_bv)}</td>"
-                    html_out += f"<td>{fmt_val(tm_py_hn)}</td>"
-                    html_out += f'<td class="divider-col">{fmt_val(tm_py_a)}</td>'
-                    html_out += f"<td>{fmt_val(tm_v_b, is_pct=True)}</td>"
-                    html_out += f"<td>{fmt_val(tm_v_h, is_pct=True)}</td>"
-                    html_out += f"<td>{fmt_val(tm_v_a, is_pct=True)}</td>"
-                    html_out += "</tr>"
+                    html_out.append('<tr class="subtotal-row">')
+                    html_out.append(f'<td colspan="2" class="cell-detail-left" style="padding-left:15px; font-weight:600;">{ch} Total</td>')
+                    html_out.append(f"<td>{fmt_val(ch_cy_bv)}</td><td>{fmt_val(ch_cy_hn)}</td><td class='td-divider'>{fmt_val(ch_cy_a)}</td>")
+                    html_out.append(f"<td>{fmt_val(ch_py_bv)}</td><td>{fmt_val(ch_py_hn)}</td><td class='td-divider'>{fmt_val(ch_py_a)}</td>")
+                    html_out.append(f"<td>{fmt_val(ch_v_b, True)}</td><td>{fmt_val(ch_v_h, True)}</td><td>{fmt_val(ch_v_a, True)}</td>")
+                    html_out.append('</tr>')
                     
-                # Channel Group 维度的 Subtotal 汇总行
-                ch_cy_a = ch_cy_bv / ch_cy_hn if ch_cy_hn > 0 else 0
-                ch_py_a = ch_py_bv / ch_py_hn if ch_py_hn > 0 else 0
-                ch_v_b = (ch_cy_bv - ch_py_bv) / ch_py_bv if ch_py_bv > 0 else 0
-                ch_v_h = (ch_cy_hn - ch_py_hn) / ch_py_hn if ch_py_hn > 0 else 0
-                ch_v_a = (ch_cy_a - ch_py_a) / ch_py_a if ch_py_a > 0 else 0
-                
-                html_out += '<tr class="subtotal-row">'
-                html_out += f'<td colspan="2" style="text-align:left; padding-left:15px; font-weight:600;">{ch} Total</td>'
-                html_out += f"<td>{fmt_val(ch_cy_bv)}</td>"
-                html_out += f"<td>{fmt_val(ch_cy_hn)}</td>"
-                html_out += f'<td class="divider-col">{fmt_val(ch_cy_a)}</td>'
-                html_out += f"<td>{fmt_val(ch_py_bv)}</td>"
-                html_out += f"<td>{fmt_val(ch_py_hn)}</td>"
-                html_out += f'<td class="divider-col">{fmt_val(ch_py_a)}</td>'
-                html_out += f"<td>{fmt_val(ch_v_b, is_pct=True)}</td>"
-                html_out += f"<td>{fmt_val(ch_v_h, is_pct=True)}</td>"
-                html_out += f"<td>{fmt_val(ch_v_a, is_pct=True)}</td>"
-                html_out += "</tr>"
-                
-            # Segment 维度的 Total 汇总行
             seg_cy_a = seg_cy_bv / seg_cy_hn if seg_cy_hn > 0 else 0
             seg_py_a = seg_py_bv / seg_py_hn if seg_py_hn > 0 else 0
             seg_v_b = (seg_cy_bv - seg_py_bv) / seg_py_bv if seg_py_bv > 0 else 0
             seg_v_h = (seg_cy_hn - seg_py_hn) / seg_py_hn if seg_py_hn > 0 else 0
             seg_v_a = (seg_cy_a - seg_py_a) / seg_py_a if seg_py_a > 0 else 0
             
-            html_out += '<tr class="total-row">'
-            html_out += f'<td colspan="3" style="font-weight:700;">{seg} OMNI TOTAL</td>'
-            html_out += f"<td>{fmt_val(seg_cy_bv)}</td>"
-            html_out += f"<td>{fmt_val(seg_cy_hn)}</td>"
-            html_out += f'<td class="divider-col">{fmt_val(seg_cy_a)}</td>'
-            html_out += f"<td>{fmt_val(seg_py_bv)}</td>"
-            html_out += f"<td>{fmt_val(seg_py_hn)}</td>"
-            html_out += f'<td class="divider-col">{fmt_val(seg_py_a)}</td>'
-            html_out += f"<td>{fmt_val(seg_v_b, is_pct=True)}</td>"
-            html_out += f"<td>{fmt_val(seg_v_h, is_pct=True)}</td>"
-            html_out += f"<td>{fmt_val(seg_v_a, is_pct=True)}</td>"
-            html_out += "</tr>"
+            html_out.append('<tr class="total-row">')
+            html_out.append(f'<td colspan="3" class="cell-detail-left" style="font-weight:700;">{seg} OMNI TOTAL</td>')
+            html_out.append(f"<td>{fmt_val(seg_cy_bv)}</td><td>{fmt_val(seg_cy_hn)}</td><td class='td-divider'>{fmt_val(seg_cy_a)}</td>")
+            html_out.append(f"<td>{fmt_val(seg_py_bv)}</td><td>{fmt_val(seg_py_hn)}</td><td class='td-divider'>{fmt_val(seg_py_a)}</td>")
+            html_out.append(f"<td>{fmt_val(seg_v_b, True)}</td><td>{fmt_val(seg_v_h, True)}</td><td>{fmt_val(seg_v_a, True)}</td>")
+            html_out.append('</tr>')
             
-        # 终极大盘汇总 Grand Total 行
         gt_cy_a = gt_cy_bv / gt_cy_hn if gt_cy_hn > 0 else 0
         gt_py_a = gt_py_bv / gt_py_hn if gt_py_hn > 0 else 0
         gt_v_b = (gt_cy_bv - gt_py_bv) / gt_py_bv if gt_py_bv > 0 else 0
         gt_v_h = (gt_cy_hn - gt_py_hn) / gt_py_hn if gt_py_hn > 0 else 0
         gt_v_a = (gt_cy_a - gt_py_a) / gt_py_a if gt_py_a > 0 else 0
         
-        html_out += '<tr class="grand-total-row">'
-        html_out += '<td colspan="4">GRAND TOTAL LINE (AUDITED)</td>'
-        html_out += f"<td>{fmt_val(gt_cy_bv)}</td>"
-        html_out += f"<td>{fmt_val(gt_cy_hn)}</td>"
-        html_out += f'<td class="divider-col">{fmt_val(gt_cy_a)}</td>'
-        html_out += f"<td>{fmt_val(gt_py_bv)}</td>"
-        html_out += f"<td>{fmt_val(gt_py_hn)}</td>"
-        html_out += f'<td class="divider-col">{fmt_val(gt_py_a)}</td>'
-        html_out += f"<td>{fmt_val(gt_v_b, is_pct=True)}</td>"
-        html_out += f"<td>{fmt_val(gt_v_h, is_pct=True)}</td>"
-        html_out += f"<td>{fmt_val(gt_v_a, is_pct=True)}</td>"
-        html_out += "</tr>"
+        html_out.append('<tr class="grand-total-row">')
+        html_out.append('<td colspan="4" class="cell-detail-left">GRAND TOTAL LINE (AUDITED)</td>')
+        html_out.append(f"<td>{fmt_val(gt_cy_bv)}</td><td>{fmt_val(gt_cy_hn)}</td><td class='td-divider'>{fmt_val(gt_cy_a)}</td>")
+        html_out.append(f"<td>{fmt_val(gt_py_bv)}</td><td>{fmt_val(gt_py_hn)}</td><td class='td-divider'>{fmt_val(gt_py_a)}</td>")
+        html_out.append(f"<td>{fmt_val(gt_v_b, True)}</td><td>{fmt_val(gt_v_h, True)}</td><td>{fmt_val(gt_v_a, True)}</td>")
+        html_out.append('</tr></tbody></table>')
         
-        html_out += "</tbody></table>"
-        st.markdown(html_out, unsafe_allow_html=True)
+        # 🌟 修复表头不显示的Bug：使用 "".join() 完美拼接 HTML
+        st.markdown("".join(html_out), unsafe_allow_html=True)
 
 # =================================================================
-# 🎢 TAB 2: TRAJECTORY & VELOCITY (FULLY RESTORED)
+# 🎢 TAB 2: TRAJECTORY & VELOCITY
 # =================================================================
     with tab2:
         def get_curve(idf, cy_y, mode, seas, cs, ce, se):
@@ -751,7 +674,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(draw_weekly_pace_chart(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
 # =================================================================
-# 🤖 TAB 3: STRATEGIC AI ADVISOR (FULLY RESTORED)
+# 🤖 TAB 3: STRATEGIC AI ADVISOR
 # =================================================================
     with tab3:
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -772,7 +695,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
 # =================================================================
-# 🌟 WELCOME SCREEN (FULLY RESTORED)
+# 🌟 WELCOME SCREEN
 # =================================================================
 else:
     welcome_html = """
