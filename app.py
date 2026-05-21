@@ -54,6 +54,47 @@ CSS_STYLE = """
     
     div[data-testid="stChatMessageAvatarUser"] { background-color: #34495E !important; }
     div[data-testid="stChatMessageAvatarAssistant"] { background-color: #051C2C !important; }
+
+    /* 🌟 麦肯锡级财务矩阵定制级 CSS 样式 */
+    .mckinsey-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        background-color: #ffffff;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.01);
+    }
+    .mckinsey-table th {
+        background-color: #051C2C !important;
+        color: white !important;
+        font-family: 'Inter', sans-serif;
+        font-weight: 600;
+        text-align: center;
+        padding: 12px 8px;
+        border: 1px solid #1D263B;
+        font-size: 0.9rem;
+    }
+    .mckinsey-table td {
+        padding: 10px 14px;
+        border: 1px solid #EAECEF;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
+        color: #333333;
+        text-align: right;
+    }
+    .mckinsey-table td:nth-child(1),
+    .mckinsey-table td:nth-child(2),
+    .mckinsey-table td:nth-child(3),
+    .mckinsey-table td:nth-child(4) {
+        text-align: left;
+    }
+    .subtotal-row { background-color: #F4F7F9 !important; font-weight: 600; }
+    .subtotal-row td { color: #051C2C !important; }
+    .total-row { background-color: #E2ECF1 !important; font-weight: 700; border-top: 2px solid #051C2C !important; border-bottom: 2px solid #051C2C !important; }
+    .total-row td { color: #051C2C !important; }
+    .grand-total-row { background-color: #D0DFE7 !important; font-weight: 800; border-top: 2px solid #051C2C !important; border-bottom: 3px double #051C2C !important; }
+    .grand-total-row td { color: #051C2C !important; }
+    .pos-var { color: #28a745 !important; font-weight: 600; }
+    .neg-var { color: #dc3545 !important; font-weight: 600; }
 </style>
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
@@ -83,13 +124,24 @@ def custom_share_card(title, cy_share, py_share, cy_abs, py_abs, curr_sym):
         <div style="color: #6C757D; font-size: 0.95rem; font-weight: 600; margin-bottom: 5px;">{title}</div>
         <div style="font-size: 1.8rem; font-weight: 700; color: #051C2C; margin-bottom: 5px;">{cy_share*100:.1f}%</div>
         <div style="font-size: 0.9rem; color: #888; font-weight: 500;">
-            PY: {py_share*100:.1f}% <span style="color: {delta_color}; font-weight: 700; margin-left: 8px;">({delta_sign}{delta_ppts:.1f} ppts)</span>
+            PY: <span style="color: #888;">{py_share*100:.1f}%</span> <span style="color: {delta_color}; font-weight: 700; margin-left: 8px;">({delta_sign}{delta_ppts:.1f} ppts)</span>
         </div>
         <div style="font-size: 0.8rem; color: #adb5bd; margin-top: 8px; font-weight: 400;">
             Vol: {curr_sym}{format_volume(cy_abs)} vs PY {curr_sym}{format_volume(py_abs)}
         </div>
     </div>
     """
+
+def fmt_val(val, is_pct=False, is_money=False, sym=""):
+    if is_pct:
+        if pd.isna(val) or np.isinf(val) or val == 0: return "0.0%"
+        sign = "+" if val > 0 else ""
+        cls = "pos-var" if val > 0 else "neg-var"
+        return f'<span class="{cls}">{sign}{val*100:.1f}%</span>'
+    else:
+        if pd.isna(val): return "0"
+        if is_money: return f"{sym}{val:,.0f}"
+        return f"{val:,.0f}"
 
 # =================================================================
 # --- 3. AI Engine Initialization ---
@@ -135,9 +187,7 @@ def load_and_clean(file):
         'REF_SALES_SEGMENT[Segment_type]': 'Segment',
         'Channel Group': 'Channel_Group',
         'Team Group': 'Team_Group',
-        'reChannel': 'reChannel',
-        'REF_OPERATION[Contact1_M&E]': 'Sales_ME',
-        'BD': 'Sales_BD'
+        'reChannel': 'reChannel'
     }
     data.rename(columns=mapping, inplace=True, errors='ignore')
     
@@ -145,38 +195,10 @@ def load_and_clean(file):
     if 'BV_Locale' not in data.columns: data['BV_Locale'] = 0.0
     if 'HN' not in data.columns: data['HN'] = 0.0
     
-    str_cols = ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month', 
-                'Segment', 'Channel_Group', 'Team_Group', 'reChannel', 'Sales_ME', 'Sales_BD']
+    str_cols = ['Market', 'Resort', 'TA_Group', 'Dest_Type', 'Month', 'Segment', 'Channel_Group', 'Team_Group', 'reChannel']
     for col in str_cols:
         if col in data.columns: 
             data[col] = data[col].astype(str).str.strip()
-            
-    # 🌟 核心财务清洗逻辑：处理 M&E 的专属渠道归属，保证 Direct + Indirect = 100%
-    if 'Segment' in data.columns:
-        me_mask = data['Segment'].str.lower().str.contains('m&e|mice', na=False)
-        
-        if 'Channel_Group' in data.columns:
-            data.loc[me_mask, 'Channel_Group'] = 'Direct'
-            data['Channel_Group'] = data['Channel_Group'].replace(['nan', 'None', '', '(blank)'], '-')
-            
-        if 'Team_Group' in data.columns:
-            data.loc[me_mask, 'Team_Group'] = 'MICE'
-            data['Team_Group'] = data['Team_Group'].replace(['nan', 'None', '', '(blank)'], '-')
-            
-        if 'reChannel' in data.columns:
-            data.loc[me_mask, 'reChannel'] = 'MICE'
-            data['reChannel'] = data['reChannel'].replace(['nan', 'None', '', '(blank)'], '-')
-            
-        if 'Sales_BD' in data.columns:
-            data.loc[me_mask, 'Sales_BD'] = '-'
-            data['Sales_BD'] = data['Sales_BD'].replace(['nan', 'None', '', '(blank)'], '-')
-            
-        if 'Sales_ME' in data.columns:
-            data.loc[~me_mask, 'Sales_ME'] = '-'
-            data['Sales_ME'] = data['Sales_ME'].replace(['nan', 'None', '', '(blank)'], '-')
-
-        data['Salesperson'] = np.where(me_mask, data.get('Sales_ME', '-'), data.get('Sales_BD', '-'))
-        data['Salesperson'] = data['Salesperson'].replace(['nan', 'None', '', '(blank)'], '-')
 
     if 'Dest_Type' in data.columns:
         data['Dest_Type'] = data['Dest_Type'].str.replace('Interzone mountain', 'IZ Mountain', case=False)
@@ -191,18 +213,44 @@ def load_and_clean(file):
     if 'Cons_Date' in data.columns: data['Cons_Date'] = pd.to_datetime(data['Cons_Date'], errors='coerce')
     return data
 
+def sanitize_channels(df_mat):
+    if 'Channel_Group' not in df_mat.columns: return df_mat
+    df_mat['Channel_Group'] = df_mat['Channel_Group'].astype(str).str.strip()
+    
+    is_dir = df_mat['Channel_Group'].str.lower().isin(['direct', 'semi-direct', 'mice-corp', 'mice corp', 'mice'])
+    is_indir = df_mat['Channel_Group'].str.lower().isin(['indirect', 'indirect-ctrip', 'indirect - ctrip', 'indirect-meituan', 'indirect - meituan'])
+    
+    if 'Segment' in df_mat.columns:
+        me_mask = df_mat['Segment'].str.lower().str.contains('m&e|mice', na=False)
+        is_dir = is_dir | me_mask
+        df_mat.loc[me_mask, 'Team_Group'] = 'MICE'
+        df_mat.loc[me_mask, 'reChannel'] = 'MICE'
+    
+    df_mat.loc[is_dir, 'Channel_Group'] = 'Direct'
+    df_mat.loc[is_indir, 'Channel_Group'] = 'Indirect'
+    df_mat.loc[(~is_dir) & (~is_indir), 'Channel_Group'] = 'Direct'
+    
+    if 'Team_Group' in df_mat.columns: df_mat['Team_Group'] = df_mat['Team_Group'].replace(['nan', 'None', '', '(blank)'], '-')
+    if 'reChannel' in df_mat.columns: df_mat['reChannel'] = df_mat['reChannel'].replace(['nan', 'None', '', '(blank)'], '-')
+    if 'Segment' in df_mat.columns:
+        df_mat['Segment'] = df_mat['Segment'].replace(['individual', 'Individual', 'fit', 'FIT'], 'FIT')
+        df_mat['Segment'] = df_mat['Segment'].replace(['m&e', 'M&E', 'mice', 'MICE'], 'MICE')
+        
+    return df_mat
+
 def format_volume(val):
     if abs(val) >= 1_000_000: return f"{val/1_000_000:,.1f}M"
     elif abs(val) >= 1_000: return f"{val/1_000:,.1f}k"
     return f"{val:,.0f}"
 
 # =================================================================
-# --- 5. Plotting & Chart Generation ---
+# --- 5. Plotting & Chart Generation (Restored Full Logic) ---
 # =================================================================
 def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
     
+    # 🌟 Precise Hovertemplate
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
     
@@ -212,6 +260,7 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False, hovertemplate='<b>Ahead (+):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False, hovertemplate='<b>Behind (-):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
     
+    # 🌟 Max Gap Annotation
     max_idx = df_curve['Gap'].abs().idxmax()
     if pd.notna(max_idx):
         max_row = df_curve.loc[max_idx]
@@ -223,6 +272,7 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
             ax=0, ay=-60, bgcolor="white", bordercolor="#A64B35", borderwidth=1.5, row=1, col=1
         )
         
+    # 🌟 Cross-over Annotations (Catching up / Overtaking)
     sign = np.sign(df_curve['Gap'].round(0))
     signchange = ((np.roll(sign, 1) - sign) != 0).astype(int)
     signchange[0] = 0
@@ -237,7 +287,6 @@ def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
 
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=1, col=1)
     fig.update_yaxes(ticksuffix="k", tickformat=",", row=2, col=1)
-    
     fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)),
                       hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
     return fig
@@ -260,7 +309,7 @@ def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text)
     return fig
 
 # =================================================================
-# --- 6. AI Advisor with Conversational Memory ---
+# --- 6. AI Advisor Engine Function ---
 # =================================================================
 def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, search_context, chat_history, current_prompt):
     cy_sum = cy_df.groupby('Dest_Type')[bv_col].sum() / 1000
@@ -306,7 +355,6 @@ def generate_macro_insights_with_memory(cy_df, py_df, context_desc, bv_col, sear
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
-    # 🌟 修复诉求 2: 回退全局面板，仅保留一行核心筛选器，保持页面简洁
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
@@ -379,6 +427,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, 
                           c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
 
+    df_cy = sanitize_channels(df_cy)
+    df_py = sanitize_channels(df_py)
+
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     chart_info = f"Currency: {bv_sel} | Market: {mkt_txt} | Cons: {cons_desc}"
@@ -391,7 +442,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with tab1:
         st.markdown(f"<h3 style='margin-bottom:20px; font-weight: 700; color: #051C2C;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
         
-        # 🌟 修复诉求 1：重构顶层 Metrics，呈现去年的数字和红绿 ADR 增幅
         cy_v, py_v = df_cy[bv_col].sum(), df_py[bv_col].sum()
         cy_h, py_h = df_cy['HN'].sum(), df_py['HN'].sum()
         cy_adr = cy_v/cy_h if cy_h > 0 else 0
@@ -415,8 +465,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             text_cy = [f"<b>{format_volume(cy)}<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{format_volume(cy)}</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
             
             fig_bar = go.Figure()
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY']/1000, name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside'))
-            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY']/1000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_CY']/1000, name=cy_label, marker_color='#051C2C', text=text_cy, textposition='outside', hovertemplate='<b>CY:</b> %{y:,.1f}k<extra></extra>'))
+            fig_bar.add_trace(go.Bar(x=combined['Dest_Type'], y=combined[f'{bv_col}_PY']/1000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{format_volume(v)}</b>" for v in combined[f'{bv_col}_PY']], textposition='outside', hovertemplate='<b>PY:</b> %{y:,.1f}k<extra></extra>'))
             fig_bar.update_yaxes(ticksuffix="k", tickformat=",")
             fig_bar.update_layout(title=f"Booking Pace by Dest Type<br><sup style='color:gray;'>{chart_info}</sup>", barmode='group', margin=dict(t=100))
             st.plotly_chart(fig_bar, use_container_width=True)
@@ -424,29 +474,21 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_pie = px.pie(cy_g, values=bv_col, names='Dest_Type', title=f"{cy_label} Share", color_discrete_sequence=['#051C2C', '#A64B35', '#A4B6B0', '#EAECEF'])
             fig_pie.update_traces(textinfo='percent+label', hole=.3); st.plotly_chart(fig_pie, use_container_width=True)
 
-        # 🌟🌟 新功能：Channel & Salesperson 多维透视矩阵 🌟🌟
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
-        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C;'>🏢 Channel & Salesperson Deep-dive Matrix</h3>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
         
-        # 🌟 修复诉求 5: 提取宏观占比卡片，加入 PY 数据以及红绿 ppts 对比
         total_cy_bv = df_cy[bv_col].sum()
         total_py_bv = df_py[bv_col].sum()
         
-        fit_cy = df_cy[df_cy['Segment'].str.lower().str.contains('individual|fit', na=False)][bv_col].sum()
-        fit_py = df_py[df_py['Segment'].str.lower().str.contains('individual|fit', na=False)][bv_col].sum()
-        mice_cy = df_cy[df_cy['Segment'].str.lower().str.contains('m&e|mice', na=False)][bv_col].sum()
-        mice_py = df_py[df_py['Segment'].str.lower().str.contains('m&e|mice', na=False)][bv_col].sum()
+        fit_cy = df_cy[df_cy['Segment'].str.lower() == 'fit'][bv_col].sum()
+        fit_py = df_py[df_py['Segment'].str.lower() == 'fit'][bv_col].sum()
+        mice_cy = df_cy[df_cy['Segment'].str.lower() == 'mice'][bv_col].sum()
+        mice_py = df_py[df_py['Segment'].str.lower() == 'mice'][bv_col].sum()
         
-        # 经过底层清洗后，所有MICE相关的渠道都会被规整到 Direct/MICE 里面
-        dir_mask_cy = df_cy['Channel_Group'].str.lower().isin(['direct', 'semi-direct', 'mice corp'])
-        dir_mask_py = df_py['Channel_Group'].str.lower().isin(['direct', 'semi-direct', 'mice corp'])
-        dir_cy = df_cy[dir_mask_cy][bv_col].sum()
-        dir_py = df_py[dir_mask_py][bv_col].sum()
-        
-        indir_mask_cy = df_cy['Channel_Group'].str.lower().isin(['indirect', 'indirect-ctrip', 'indirect-meituan'])
-        indir_mask_py = df_py['Channel_Group'].str.lower().isin(['indirect', 'indirect-ctrip', 'indirect-meituan'])
-        indir_cy = df_cy[indir_mask_cy][bv_col].sum()
-        indir_py = df_py[indir_mask_py][bv_col].sum()
+        dir_cy = df_cy[df_cy['Channel_Group'] == 'Direct'][bv_col].sum()
+        dir_py = df_py[df_py['Channel_Group'] == 'Direct'][bv_col].sum()
+        indir_cy = df_cy[df_cy['Channel_Group'] == 'Indirect'][bv_col].sum()
+        indir_py = df_py[df_py['Channel_Group'] == 'Indirect'][bv_col].sum()
 
         fit_share_cy = fit_cy / total_cy_bv if total_cy_bv else 0
         fit_share_py = fit_py / total_py_bv if total_py_bv else 0
@@ -465,47 +507,160 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 构建 5 层级联透视矩阵数据表
-        grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel', 'Salesperson']
+        grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel']
         cy_matrix_grp = df_cy.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
         py_matrix_grp = df_py.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
         matrix_df = pd.merge(cy_matrix_grp, py_matrix_grp, on=grp_cols, how='outer', suffixes=('_CY', '_PY')).fillna(0)
         
-        matrix_df['BV Var'] = matrix_df[f'{bv_col}_CY'] - matrix_df[f'{bv_col}_PY']
-        matrix_df['BV YoY %'] = np.where(matrix_df[f'{bv_col}_PY'] != 0, matrix_df['BV Var'] / matrix_df[f'{bv_col}_PY'], 0)
-        matrix_df['HN Var'] = matrix_df['HN_CY'] - matrix_df['HN_PY']
-        matrix_df['HN YoY %'] = np.where(matrix_df['HN_PY'] != 0, matrix_df['HN Var'] / matrix_df['HN_PY'], 0)
-        
+        for c in grp_cols:
+            matrix_df[c] = matrix_df[c].astype(str).str.strip().replace(['nan', 'None', ''], '-')
+            
+        matrix_df = matrix_df.groupby(grp_cols).sum().reset_index()
         matrix_df = matrix_df.sort_values(['Segment', 'Channel_Group', f'{bv_col}_CY'], ascending=[True, True, False])
-        
-        matrix_df.rename(columns={
-            f'{bv_col}_CY': 'CY BV', f'{bv_col}_PY': 'PY BV',
-            'HN_CY': 'CY HN', 'HN_PY': 'PY HN'
-        }, inplace=True)
-        matrix_df.set_index(grp_cols, inplace=True)
 
-        def style_variance(val):
-            try:
-                if val > 0: return 'color: #28a745; font-weight: 600;' 
-                elif val < 0: return 'color: #dc3545; font-weight: 600;'
-            except: pass
-            return 'color: #6c757d;'
-
-        styler = matrix_df.style.format({
-            'CY BV': "{:,.0f}", 'PY BV': "{:,.0f}", 'BV Var': "{:+,.0f}", 'BV YoY %': "{:+.1%}",
-            'CY HN': "{:,.0f}", 'PY HN': "{:,.0f}", 'HN Var': "{:+,.0f}", 'HN YoY %': "{:+.1%}"
-        })
+        html_out = """
+        <table class="mckinsey-table">
+            <thead>
+                <tr>
+                    <th rowspan="2" style="width:10%;">Segment</th>
+                    <th rowspan="2" style="width:12%;">Channel Group</th>
+                    <th rowspan="2" style="width:12%;">Team Group</th>
+                    <th rowspan="2" style="width:14%;">reChannel</th>
+                    <th colspan="3" style="background-color:#112E43 !important;">Current Period</th>
+                    <th colspan="3" style="background-color:#26465C !important;">Previous Period</th>
+                    <th colspan="3" style="background-color:#A64B35 !important;">Variance</th>
+                </tr>
+                <tr>
+                    <th>BV</th>
+                    <th>HN</th>
+                    <th>ADR</th>
+                    <th>BV</th>
+                    <th>HN</th>
+                    <th>ADR</th>
+                    <th>BV %</th>
+                    <th>HN %</th>
+                    <th>ADR %</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
         
-        # 🌟 修复诉求 4：兼容不同 Pandas 版本的 Styler 调用方法，防止报错
-        if hasattr(styler, 'map'):
-            styler = styler.map(style_variance, subset=['BV Var', 'BV YoY %', 'HN Var', 'HN YoY %'])
-        else:
-            styler = styler.applymap(style_variance, subset=['BV Var', 'BV YoY %', 'HN Var', 'HN YoY %'])
+        gt_cy_bv, gt_cy_hn, gt_py_bv, gt_py_hn = 0, 0, 0, 0
+        segments = matrix_df['Segment'].unique()
         
-        st.dataframe(styler, use_container_width=True, height=550)
+        for seg in segments:
+            df_seg = matrix_df[matrix_df['Segment'] == seg]
+            seg_cy_bv, seg_cy_hn = df_seg[f'{bv_col}_CY'].sum(), df_seg['HN_CY'].sum()
+            seg_py_bv, seg_py_hn = df_seg[f'{bv_col}_PY'].sum(), df_seg['HN_PY'].sum()
+            
+            gt_cy_bv += seg_cy_bv; gt_cy_hn += seg_cy_hn
+            gt_py_bv += seg_py_bv; gt_py_hn += seg_py_hn
+            
+            channels = df_seg['Channel_Group'].unique()
+            seg_rowspan = sum([len(df_seg[df_seg['Channel_Group'] == ch]) + 1 for ch in channels])
+            first_seg_row = True
+            
+            for ch in channels:
+                df_ch = df_seg[df_seg['Channel_Group'] == ch]
+                ch_cy_bv, ch_cy_hn = df_ch[f'{bv_col}_CY'].sum(), df_ch['HN_CY'].sum()
+                ch_py_bv, ch_py_hn = df_ch[f'{bv_col}_PY'].sum(), df_ch['HN_PY'].sum()
+                
+                ch_rowspan = len(df_ch)
+                first_ch_row = True
+                
+                for idx, row in df_ch.iterrows():
+                    html_out += "<tr>"
+                    if first_seg_row:
+                        html_out += f'<td rowspan="{seg_rowspan}" style="font-weight:700; background-color:#FAFAFA; border-right:2px solid #051C2C; vertical-align:top; padding-top:15px;">{seg}</td>'
+                        first_seg_row = False
+                    if first_ch_row:
+                        html_out += f'<td rowspan="{ch_rowspan}" style="font-weight:600; vertical-align:middle;">{ch}</td>'
+                        first_ch_row = False
+                        
+                    cy_b, cy_h = row[f'{bv_col}_CY'], row['HN_CY']
+                    py_b, py_h = row[f'{bv_col}_PY'], row['HN_PY']
+                    cy_a = cy_b / cy_h if cy_h > 0 else 0
+                    py_a = py_b / py_h if py_h > 0 else 0
+                    
+                    v_b = (cy_b - py_b) / py_b if py_b > 0 else 0
+                    v_h = (cy_h - py_h) / py_h if py_h > 0 else 0
+                    v_a = (cy_a - py_a) / py_a if py_a > 0 else 0
+                    
+                    html_out += f"<td>{row['Team_Group']}</td>"
+                    html_out += f"<td>{row['reChannel']}</td>"
+                    html_out += f"<td>{fmt_val(cy_b, is_money=True, sym=curr_sym)}</td>"
+                    html_out += f"<td>{fmt_val(cy_h)}</td>"
+                    html_out += f"<td>{fmt_val(cy_a, is_money=True, sym=curr_sym)}</td>"
+                    html_out += f"<td>{fmt_val(py_b, is_money=True, sym=curr_sym)}</td>"
+                    html_out += f"<td>{fmt_val(py_h)}</td>"
+                    html_out += f"<td>{fmt_val(py_a, is_money=True, sym=curr_sym)}</td>"
+                    html_out += f"<td>{fmt_val(v_b, is_pct=True)}</td>"
+                    html_out += f"<td>{fmt_val(v_h, is_pct=True)}</td>"
+                    html_out += f"<td>{fmt_val(v_a, is_pct=True)}</td>"
+                    html_out += "</tr>"
+                    
+                ch_cy_a = ch_cy_bv / ch_cy_hn if ch_cy_hn > 0 else 0
+                ch_py_a = ch_py_bv / ch_py_hn if ch_py_hn > 0 else 0
+                ch_v_b = (ch_cy_bv - ch_py_bv) / ch_py_bv if ch_py_bv > 0 else 0
+                ch_v_h = (ch_cy_hn - ch_py_hn) / ch_py_hn if ch_py_hn > 0 else 0
+                ch_v_a = (ch_cy_a - ch_py_a) / ch_py_a if ch_py_a > 0 else 0
+                
+                html_out += '<tr class="subtotal-row">'
+                html_out += f'<td colspan="3" style="text-align:left; padding-left:15px;">{ch} Subtotal</td>'
+                html_out += f"<td>{fmt_val(ch_cy_bv, is_money=True, sym=curr_sym)}</td>"
+                html_out += f"<td>{fmt_val(ch_cy_hn)}</td>"
+                html_out += f"<td>{fmt_val(ch_cy_a, is_money=True, sym=curr_sym)}</td>"
+                html_out += f"<td>{fmt_val(ch_py_bv, is_money=True, sym=curr_sym)}</td>"
+                html_out += f"<td>{fmt_val(ch_py_hn)}</td>"
+                html_out += f"<td>{fmt_val(ch_py_a, is_money=True, sym=curr_sym)}</td>"
+                html_out += f"<td>{fmt_val(ch_v_b, is_pct=True)}</td>"
+                html_out += f"<td>{fmt_val(ch_v_h, is_pct=True)}</td>"
+                html_out += f"<td>{fmt_val(ch_v_a, is_pct=True)}</td>"
+                html_out += "</tr>"
+                
+            seg_cy_a = seg_cy_bv / seg_cy_hn if seg_cy_hn > 0 else 0
+            seg_py_a = seg_py_bv / seg_py_hn if seg_py_hn > 0 else 0
+            seg_v_b = (seg_cy_bv - seg_py_bv) / seg_py_bv if seg_py_bv > 0 else 0
+            seg_v_h = (seg_cy_hn - seg_py_hn) / seg_py_hn if seg_py_hn > 0 else 0
+            seg_v_a = (seg_cy_a - seg_py_a) / seg_py_a if seg_py_a > 0 else 0
+            
+            html_out += '<tr class="total-row">'
+            html_out += f'<td colspan="4">{seg} Total</td>'
+            html_out += f"<td>{fmt_val(seg_cy_bv, is_money=True, sym=curr_sym)}</td>"
+            html_out += f"<td>{fmt_val(seg_cy_hn)}</td>"
+            html_out += f"<td>{fmt_val(seg_cy_a, is_money=True, sym=curr_sym)}</td>"
+            html_out += f"<td>{fmt_val(seg_py_bv, is_money=True, sym=curr_sym)}</td>"
+            html_out += f"<td>{fmt_val(seg_py_hn)}</td>"
+            html_out += f"<td>{fmt_val(seg_py_a, is_money=True, sym=curr_sym)}</td>"
+            html_out += f"<td>{fmt_val(seg_v_b, is_pct=True)}</td>"
+            html_out += f"<td>{fmt_val(seg_v_h, is_pct=True)}</td>"
+            html_out += f"<td>{fmt_val(seg_v_a, is_pct=True)}</td>"
+            html_out += "</tr>"
+            
+        gt_cy_a = gt_cy_bv / gt_cy_hn if gt_cy_hn > 0 else 0
+        gt_py_a = gt_py_bv / gt_py_hn if gt_py_hn > 0 else 0
+        gt_v_b = (gt_cy_bv - gt_py_bv) / gt_py_bv if gt_py_bv > 0 else 0
+        gt_v_h = (gt_cy_hn - gt_py_hn) / gt_py_hn if gt_py_hn > 0 else 0
+        gt_v_a = (gt_cy_a - gt_py_a) / gt_py_a if gt_py_a > 0 else 0
+        
+        html_out += '<tr class="grand-total-row">'
+        html_out += '<td colspan="4">Grand Total</td>'
+        html_out += f"<td>{fmt_val(gt_cy_bv, is_money=True, sym=curr_sym)}</td>"
+        html_out += f"<td>{fmt_val(gt_cy_hn)}</td>"
+        html_out += f"<td>{fmt_val(gt_cy_a, is_money=True, sym=curr_sym)}</td>"
+        html_out += f"<td>{fmt_val(gt_py_bv, is_money=True, sym=curr_sym)}</td>"
+        html_out += f"<td>{fmt_val(gt_py_hn)}</td>"
+        html_out += f"<td>{fmt_val(gt_py_a, is_money=True, sym=curr_sym)}</td>"
+        html_out += f"<td>{fmt_val(gt_v_b, is_pct=True)}</td>"
+        html_out += f"<td>{fmt_val(gt_v_h, is_pct=True)}</td>"
+        html_out += f"<td>{fmt_val(gt_v_a, is_pct=True)}</td>"
+        html_out += "</tr>"
+        
+        html_out += "</tbody></table>"
+        st.markdown(html_out, unsafe_allow_html=True)
 
 # =================================================================
-# 🎢 TAB 2: TRAJECTORY & VELOCITY
+# 🎢 TAB 2: TRAJECTORY & VELOCITY (FULLY RESTORED)
 # =================================================================
     with tab2:
         def get_curve(idf, cy_y, mode, seas, cs, ce, se):
@@ -529,7 +684,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(draw_weekly_pace_chart(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
 # =================================================================
-# 🤖 TAB 3: STRATEGIC AI ADVISOR
+# 🤖 TAB 3: STRATEGIC AI ADVISOR (FULLY RESTORED)
 # =================================================================
     with tab3:
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -539,10 +694,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             for m in st.session_state.messages:
                 with st.chat_message(m["role"]): st.markdown(m["content"])
 
-        if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Analysis on Web reChannel discrepancy...)"):
+        if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Analysis on FIT Web reChannel discrepancy...)"):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
                 with st.chat_message("user"): st.write(prompt)
+                
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing context & browsing trends..."):
                         search_result = get_web_search_context(prompt)
@@ -553,24 +709,50 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                         st.info(insights)
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
+# =================================================================
+# 🌟 WELCOME SCREEN (FULLY RESTORED)
+# =================================================================
 else:
     welcome_html = """
     <div style="padding: 5rem 2rem; text-align: center; background: linear-gradient(135deg, #051C2C 0%, #1D263B 100%); border-radius: 16px; margin-top: 1rem; box-shadow: 0 20px 40px rgba(0,0,0,0.15);">
         <div style="font-size: 4.5rem; margin-bottom: 0.5rem; color: #A64B35; font-family: serif;">Ψ</div>
         <h1 style="font-family: 'Playfair Display', serif; font-size: 3.5rem; color: #FFFFFF; margin-bottom: 1rem; letter-spacing: 1px;">Executive Intelligence Hub</h1>
         <p style="font-family: 'Inter', sans-serif; font-size: 1.15rem; color: #A4B6B0; max-width: 650px; margin: 0 auto; line-height: 1.6; font-weight: 300;">
-            Elevate your sales strategy. Please upload your Sales Data via the sidebar to unlock multi-currency pacing analytics, consumption date precision, full channel-matrix matrix and AI-driven insights.
+            Elevate your sales strategy. Please upload your Sales Data via the sidebar to unlock multi-currency pacing analytics, McKinsey-style omni-channel matrix and AI-driven insights.
         </p>
     </div>
     """
     st.markdown(welcome_html, unsafe_allow_html=True)
+
     st.markdown("<br><br>", unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
+    
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
+    
     with c1:
-        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday performance.</p></div>''', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday and campaign performance.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
     with c2:
-        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Omni-Channel Matrix</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Deep dive into Segment, Channel groups, Team structures, and combined Salesperson efficiency metrics instantly.</p></div>''', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Omni-Channel Matrix</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Deep dive into Segment, Channel groups, and Team structures with McKinsey-grade cross-tabulation and subtotaling.</p>
+        </div>
+        ''', unsafe_allow_html=True)
+        
     with c3:
-        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p></div>''', unsafe_allow_html=True)
+        st.markdown(f'''
+        <div style="{card_style}">
+            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
+            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3>
+            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p>
+        </div>
+        ''', unsafe_allow_html=True)
