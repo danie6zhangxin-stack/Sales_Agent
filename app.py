@@ -695,7 +695,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.plotly_chart(fig_chan, use_container_width=True)
         with c_r2:
             ta_share = df_cy.groupby('TA_Group')[bv_col].sum().reset_index().sort_values(bv_col, ascending=False).head(5)
-            fig_ta_p = px.pie(ta_share, values=bv_col, names='TA_Group', title="前五大核心分销渠道集团集中度雷达 (Top 5 TA Share)", color_discrete_sequence=px.colors.sequential.Plotlysh)
+            fig_ta_p = px.pie(ta_share, values=bv_col, names='TA_Group', title="前五大核心分销渠道集团集中度雷达 (Top 5 TA Share)", color_discrete_sequence=['#051C2C', '#1D263B', '#A64B35', '#A4B6B0', '#EAECEF'])
             st.plotly_chart(fig_ta_p, use_container_width=True)
             
         st.markdown("---")
