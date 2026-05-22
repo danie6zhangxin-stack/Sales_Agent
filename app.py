@@ -122,7 +122,7 @@ def fmt_val(val, is_pct=False):
         return f"{val:,.0f}"
 
 # =================================================================
-# --- 3. AI Engine Initialization ---
+# --- 3. AI Engine Initialization & Connectors ---
 # =================================================================
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
@@ -130,6 +130,16 @@ except:
     api_key = "sk-xxxxxxxxxxxxxxxx" 
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
+
+def get_web_search_context(query):
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            if not results: return "No relevant news found."
+            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except Exception:
+        return "Web search currently unavailable."
 
 # =================================================================
 # --- 4. Core Data Cleaning & Strategic Mapping Logic ---
@@ -232,7 +242,7 @@ def format_volume(val):
     return f"{val:,.0f}"
 
 # =================================================================
-# --- 5. Plotting Functions ---
+# --- 5. Plotting Functions (Tab 2) ---
 # =================================================================
 def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
@@ -284,7 +294,7 @@ def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text)
     return fig
 
 # =================================================================
-# --- 6. AI Engine Matrix Summary Generator ---
+# --- 6. Dual AI Engines (Weekly Report & Conversational Bot) ---
 # =================================================================
 def build_strategic_summary_matrix(cy_df, py_df, bv_col):
     cy_s = assign_strategic_tags(cy_df)
@@ -296,7 +306,8 @@ def build_strategic_summary_matrix(cy_df, py_df, bv_col):
     merged['Var_Pct'] = np.where(merged[f'{bv_col}_PY'] > 0, merged['Variance'] / merged[f'{bv_col}_PY'] * 100, 0)
     return merged
 
-def generate_macro_insights_with_memory(context_info, matrix_summary_str, chat_history, current_prompt):
+# 引擎 A：负责 Tab 4 的自动化周报摘要生成
+def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Strategic Director for ClubMed. You are interacting with Daniel (Business Controller Manager).
     Data Scope Environment: {context_info}
     
@@ -317,14 +328,50 @@ def generate_macro_insights_with_memory(context_info, matrix_summary_str, chat_h
     except Exception as e:
         return f"Strategic report engine timeout. Error: {e}"
 
+# 引擎 B：负责 Tab 5 的自由对话式 AI 顾问（你的老朋友）
+def generate_chat_advisor_response(cy_df, py_df, context_desc, bv_col, search_context, chat_history, current_prompt):
+    cy_sum = cy_df.groupby('Dest_Type')[bv_col].sum() / 1000
+    py_sum = py_df.groupby('Dest_Type')[bv_col].sum() / 1000
+    comp_df = pd.DataFrame({'CY_k': cy_sum, 'PY_k': py_sum}).fillna(0)
+    comp_df['Variance_k'] = comp_df['CY_k'] - comp_df['PY_k']
+    comp_df['Var_Pct'] = (comp_df['Variance_k'] / comp_df['PY_k'] * 100).replace([np.inf, -np.inf], 0).fillna(0)
+    
+    total_cy, total_py = comp_df['CY_k'].sum(), comp_df['PY_k'].sum()
+    total_pct = ((total_cy - total_py) / total_py * 100) if total_py != 0 else 0
+    
+    sys_prompt = f"""You are an elite Strategy Consultant for ClubMed. You are having an ongoing conversation with Daniel (Business Controller Manager).
+    Context: {context_desc}
+    Total Performance: CY {total_cy:,.0f}k vs PY {total_py:,.0f}k (Var: {total_pct:+.1f}%)
+    
+    YoY COMPARISON TABLE (Unit: k):
+    {comp_df.to_string()}
+    
+    🌍 REAL-TIME WEB SEARCH/NEWS: {search_context}
+    
+    RULES:
+    1. If the user asks a follow-up question, DO NOT repeat the entire table summary. Directly address their new specific point.
+    2. Be highly analytical, empathetic, and forward-looking. 
+    3. Use the conversation history provided to maintain context.
+    """
+    
+    messages = [SystemMessage(content=sys_prompt)]
+    for msg in chat_history:
+        if msg["role"] == "user": messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant": messages.append(AIMessage(content=msg["content"]))
+        
+    messages.append(HumanMessage(content=current_prompt))
+    
+    try:
+        resp = llm.invoke(messages)
+        return resp.content
+    except Exception as e: 
+        return f"AI Advisor unavailable. Error: {e}"
+
 # =================================================================
 # --- 7. Main UI Flow & Routing ---
 # =================================================================
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
-    
-    # 彻底排查清理名为 "mission" 的特殊 segment
-    df = df[~df['Segment'].str.lower().str.contains('mission', na=False)]
     
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
@@ -401,16 +448,26 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_cy = sanitize_channels(df_cy)
     df_py = sanitize_channels(df_py)
 
+    # 彻底清除使命渠道
+    df_cy = df_cy[~df_cy['Segment'].str.lower().str.contains('mission', na=False)]
+    df_py = df_py[~df_py['Segment'].str.lower().str.contains('mission', na=False)]
+
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
     chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
-    # 🌟 4个极其强悍的高管级面板 Tab
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🎯 Strategic Decision Canvas", "🤖 Auto-Diagnostics AI Summary"])
+    # 🌟 集大成者：全新的 5 大专属战略 Tab
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Executive Dashboard", 
+        "🎢 Trajectory & Velocity", 
+        "🎯 Strategic Decision Canvas", 
+        "📋 Auto-Diagnostics Summary", 
+        "🤖 Strategic AI Advisor"
+    ])
 
     # =================================================================
-    # 📊 TAB 1: EXECUTIVE DASHBOARD (包含 100% 完整深潜矩阵算法)
+    # 📊 TAB 1: EXECUTIVE DASHBOARD (恢复了 FIT/MICE/Direct/Indirect 卡片)
     # =================================================================
     with tab1:
         st.markdown(f"<h3 style='margin-bottom:20px; font-weight: 700; color: #051C2C;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
@@ -447,10 +504,39 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_pie.update_traces(textinfo='percent+label', hole=.3); st.plotly_chart(fig_pie, use_container_width=True)
 
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
+        
+        # 🌟 恢复诉求：动态 Title 与 4 大份额矩阵卡片
         st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
         st.markdown(f"<div style='color:#6C757D; font-size:0.95rem; font-weight:500; margin-bottom:20px;'>{chart_info}</div>", unsafe_allow_html=True)
+        
+        total_cy_bv = df_cy[bv_col].sum()
+        total_py_bv = df_py[bv_col].sum()
+        
+        fit_cy = df_cy[df_cy['Segment'].str.lower() == 'fit'][bv_col].sum()
+        fit_py = df_py[df_py['Segment'].str.lower() == 'fit'][bv_col].sum()
+        mice_cy = df_cy[df_cy['Segment'].str.lower() == 'mice'][bv_col].sum()
+        mice_py = df_py[df_py['Segment'].str.lower() == 'mice'][bv_col].sum()
+        
+        dir_cy = df_cy[df_cy['Channel_Group'] == 'Direct'][bv_col].sum()
+        dir_py = df_py[df_py['Channel_Group'] == 'Direct'][bv_col].sum()
+        indir_cy = df_cy[df_cy['Channel_Group'] == 'Indirect'][bv_col].sum()
+        indir_py = df_py[df_py['Channel_Group'] == 'Indirect'][bv_col].sum()
 
-        # 核心全量深潜矩阵 (100% 完整代码)
+        fit_share_cy = fit_cy / total_cy_bv if total_cy_bv else 0
+        fit_share_py = fit_py / total_py_bv if total_py_bv else 0
+        mice_share_cy = mice_cy / total_cy_bv if total_cy_bv else 0
+        mice_share_py = mice_py / total_py_bv if total_py_bv else 0
+        dir_share_cy = dir_cy / total_cy_bv if total_cy_bv else 0
+        dir_share_py = dir_py / total_py_bv if total_py_bv else 0
+        indir_share_cy = indir_cy / total_cy_bv if total_cy_bv else 0
+        indir_share_py = indir_py / total_py_bv if total_py_bv else 0
+
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        with sc1: st.markdown(custom_share_card("FIT (Individual) Share", fit_share_cy, fit_share_py, fit_cy, fit_py, curr_sym), unsafe_allow_html=True)
+        with sc2: st.markdown(custom_share_card("MICE (M&E) Share", mice_share_cy, mice_share_py, mice_cy, mice_py, curr_sym), unsafe_allow_html=True)
+        with sc3: st.markdown(custom_share_card("Total Direct Share", dir_share_cy, dir_share_py, dir_cy, dir_py, curr_sym), unsafe_allow_html=True)
+        with sc4: st.markdown(custom_share_card("Total Indirect Share", indir_share_cy, indir_share_py, indir_cy, indir_py, curr_sym), unsafe_allow_html=True)
+
         grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel']
         cy_matrix_grp = df_cy.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
         py_matrix_grp = df_py.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
@@ -458,9 +544,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         for c in grp_cols: m_df[c] = m_df[c].astype(str).str.strip().replace(['nan', 'None', ''], '-')
         m_df = m_df.groupby(grp_cols).sum().reset_index().sort_values(['Segment', 'Channel_Group', f'{bv_col}_CY'], ascending=[True, True, False])
         
+        # 100% 完整深潜矩阵渲染 (包含修复后的闭合括号)
         html_out = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
         html_out.append('<th rowspan="2" class="th-main th-dark" style="width:8%;">Segment</th><th rowspan="2" class="th-main th-dark" style="width:10%;">Channel Group</th><th rowspan="2" class="th-main th-dark" style="width:10%;">Team Group</th><th rowspan="2" class="th-main th-dark" style="width:12%;">reChannel</th><th colspan="3" class="th-main th-cy">Current Period</th><th colspan="3" class="th-main th-py" style="border-left: 2px solid #ffffff;">Previous Period</th><th colspan="3" class="th-main th-var" style="border-left: 2px solid #ffffff;">Variance</th></tr><tr>')
-        html_out.append('<th class="th-sub th-cy">BV</th><th class="th-sub th-cy">HN</th><th class="th-sub th-cy th-divider">ADR</th><th class="th-sub th-py">BV</th><th class="th-sub th-py">HN</th><th class="th-sub th-py th-divider">ADR</th><th class="th-sub th-var">BV %</th><th class="th-sub th-var">HN %</th><th class="th-sub th-var">ADR %</th></tr></thead><tbody>']
+        html_out.append('<th class="th-sub th-cy">BV</th><th class="th-sub th-cy">HN</th><th class="th-sub th-cy th-divider">ADR</th><th class="th-sub th-py">BV</th><th class="th-sub th-py">HN</th><th class="th-sub th-py th-divider">ADR</th><th class="th-sub th-var">BV %</th><th class="th-sub th-var">HN %</th><th class="th-sub th-var">ADR %</th></tr></thead><tbody>')
         
         gt_cy_bv, gt_cy_hn, gt_py_bv, gt_py_hn = 0, 0, 0, 0
         seg_rowspan_dict, ch_rowspan_dict, tm_rowspan_dict = {}, {}, {}
@@ -564,12 +651,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(draw_weekly_pace_chart(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
 # =================================================================
-# 🎯 TAB 3: STRATEGIC DECISION CANVAS (四大战略看板)
+# 🎯 TAB 3: STRATEGIC DECISION CANVAS (四大大看板)
 # =================================================================
     with tab3:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
         
-        # 看板 1: Booking Lead-Time 看板
         st.markdown("---")
         st.markdown("### 📅 看板 1: Booking Lead-Time & Decision Window Monitor")
         df_cy['Lead_Time'] = (df_cy['Cons_Date'] - df_cy['Sales_Date']).dt.days
@@ -588,7 +674,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_lt.update_layout(title="预订提前天数(Lead Time)结构对比 (k€)", barmode='group')
         st.plotly_chart(fig_lt, use_container_width=True)
         
-        # 看板 2: Corridor Matrix (自动对齐中国和香港)
         st.markdown("---")
         st.markdown("### 🌍 看板 2: Source Market to Destination Corridor Matrix (中国与香港专题)")
         corr_raw = df_cy.pivot_table(index='Market', columns='Dest_Type', values=bv_col, aggfunc='sum').fillna(0)/1000
@@ -600,7 +685,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_corr = px.imshow(corr_df, text_auto=True, aspect="auto", color_continuous_scale="Blugrn", title="核心战略双向走廊穿透矩阵大盘 (k€)")
         st.plotly_chart(fig_corr, use_container_width=True)
         
-        # 看板 3: Cannibalization & Margin Quality 看板
         st.markdown("---")
         st.markdown("### 📉 看板 3: Channel Cannibalization & Margin Quality Monitor")
         chan_adr = df_cy.groupby('Channel_Group').agg({bv_col:'sum', 'HN':'sum'}).reset_index()
@@ -614,11 +698,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_ta_p = px.pie(ta_share, values=bv_col, names='TA_Group', title="前五大核心分销渠道集团集中度雷达 (Top 5 TA Share)", color_discrete_sequence=px.colors.sequential.Plotlysh)
             st.plotly_chart(fig_ta_p, use_container_width=True)
             
-        # 看板 4: Campaign Pulse & Dynamic Baseline 智能完工预测
         st.markdown("---")
         st.markdown("### 📈 看板 4: Campaign Pulse & Dynamic Baseline Final Outlook")
         st.info("💡 **数理完工模型：** 系统依据当前时点的 On-the-Book 实绩，参考历史积累推进斜率曲线（Pace Ratio）自动外推终点线大盘预测值。")
-        pace_ratio = 0.78 # 设定历史同期平均推进率为 78%
+        pace_ratio = 0.78 
         predicted_final = cy_v / pace_ratio
         b_c1, b_c2 = st.columns(2)
         with b_c1:
@@ -629,7 +712,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.plotly_chart(fig_pulse, use_container_width=True)
 
 # =================================================================
-# 🤖 TAB 4: AUTO-DIAGNOSTICS AI SUMMARY (周度全量战略摘要)
+# 📋 TAB 4: AUTO-DIAGNOSTICS AI SUMMARY (周度全量战略摘要)
 # =================================================================
     with tab4:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>📋 Automated Weekly Executive Diagnostics</h2>", unsafe_allow_html=True)
@@ -640,13 +723,34 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             with st.spinner("AI 正在深度穿透细分行业与战区异动原因..."):
                 matrix_str = strat_matrix.to_string(index=False)
                 chat_history = []
-                report_out = generate_macro_insights_with_memory(chart_info, matrix_str, chat_history, "根据当前战区的变动数据，写一份深度的 summary 报告，指出需要关注和注意的地方。")
+                report_out = generate_weekly_diagnostics(chart_info, matrix_str, chat_history, "根据当前战区的变动数据，写一份深度的 summary 报告，指出需要关注和注意的地方。")
                 st.markdown("---")
                 st.markdown("### 🏢 Executive Weekly Advisory Report")
                 st.success(report_out)
 
 # =================================================================
-# 🌟 WELCOME SCREEN (100% 完整保留三栏式高管卡片)
+# 🤖 TAB 5: STRATEGIC AI ADVISOR (完全恢复你的老朋友！)
+# =================================================================
+    with tab5:
+        if "messages" not in st.session_state: st.session_state.messages = []
+        chat_container = st.container()
+        with chat_container:
+            for m in st.session_state.messages:
+                with st.chat_message(m["role"]): st.markdown(m["content"])
+
+        if prompt := st.chat_input("Ask for strategic gap analysis (e.g. Analysis on FIT Web reChannel discrepancy...)"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with chat_container:
+                with st.chat_message("user"): st.write(prompt)
+                with st.chat_message("assistant"):
+                    with st.spinner("Analyzing context & browsing trends..."):
+                        search_result = get_web_search_context(prompt)
+                        insights = generate_chat_advisor_response(df_cy, df_py, chart_info, bv_col, search_result, st.session_state.messages[:-1], prompt)
+                        st.info(insights)
+                        st.session_state.messages.append({"role": "assistant", "content": insights})
+
+# =================================================================
+# 🌟 WELCOME SCREEN (全量保留三栏式高管卡片)
 # =================================================================
 else:
     welcome_html = """
@@ -663,27 +767,9 @@ else:
 
     c1, c2, c3 = st.columns(3)
     card_style = "padding: 2rem 1.5rem; background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.04); border-top: 4px solid #A64B35; height: 100%; text-align: center;"
-    
     with c1:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday and campaign performance.</p>
-        </div>''', unsafe_allow_html=True)
-        
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">📅</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Dual-Date Precision</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Cross-filter by exact Booking Window and Consumption Dates to pinpoint holiday and campaign performance.</p></div>''', unsafe_allow_html=True)
     with c2:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Omni-Channel Matrix</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Deep dive into Segment, Channel groups, and Team structures with McKinsey-grade cross-tabulation and subtotaling.</p>
-        </div>''', unsafe_allow_html=True)
-        
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Omni-Channel Matrix</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">Deep dive into Segment, Channel groups, and Team structures with McKinsey-grade cross-tabulation and subtotaling.</p></div>''', unsafe_allow_html=True)
     with c3:
-        st.markdown(f'''
-        <div style="{card_style}">
-            <div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div>
-            <h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3>
-            <p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p>
-        </div>''', unsafe_allow_html=True)
+        st.markdown(f'''<div style="{card_style}"><div style="font-size: 2.5rem; margin-bottom: 1rem;">🧠</div><h3 style="font-family: 'Playfair Display', serif; color: #051C2C; font-size: 1.4rem; margin-bottom: 0.5rem;">Conversational AI</h3><p style="color: #6c757d; font-size: 0.95rem; line-height: 1.5;">A strategic partner with full contextual memory, powered by real-time web search for unparalleled macro analysis.</p></div>''', unsafe_allow_html=True)
