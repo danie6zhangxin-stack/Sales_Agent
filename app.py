@@ -263,6 +263,8 @@ def draw_weekly_pace_chart_m(df_curve, cy_label, py_label, curr_symbol, info_tex
     if df_curve is None or df_curve.empty: return go.Figure()
     df_weekly = df_curve.resample('W-MON', on='Sales_Date').sum().reset_index()
     df_weekly['Weekly_Gap_M'] = df_weekly['CY_inc_M'] - df_weekly['PY_inc_M']
+    # 【修复核心】在这里补上绝对差值的计算，供 Hover 透视使用
+    df_weekly['Weekly_Gap_abs'] = df_weekly['CY_inc_abs'] - df_weekly['PY_inc_abs'] 
     
     fig = go.Figure()
     colors = ['rgba(40,167,69,0.85)' if val >= 0 else 'rgba(220,53,69,0.85)' for val in df_weekly['Weekly_Gap_M']]
