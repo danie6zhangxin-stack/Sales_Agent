@@ -593,136 +593,127 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     # =================================================================
     # 🎯 TAB 3: STRATEGIC DECISION CANVAS
     # =================================================================
-    with tab3:
-        st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
-        
-        st.markdown("---")
-        st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Booking Lead-Time & Decision Window Monitor</h3>", unsafe_allow_html=True)
-        df_cy_tags['Lead_Time'] = (df_cy_tags['Cons_Date'] - df_cy_tags['Sales_Date']).dt.days
-        df_py_tags['Lead_Time'] = (df_py_tags['Cons_Date'] - df_py_tags['Sales_Date']).dt.days
-        bins = [-999, 7, 30, 60, 90, 99999]
-        labels = ['0-7 Days (Last-Minute)', '8-30 Days (Short-Lead)', '31-60 Days (Regular)', '61-90 Days (Early-Bird)', '90+ Days (Long-Lock)']
-        df_cy_tags['Lead_Bucket'] = pd.cut(df_cy_tags['Lead_Time'], bins=bins, labels=labels)
-        df_py_tags['Lead_Bucket'] = pd.cut(df_py_tags['Lead_Time'], bins=bins, labels=labels)
-        lt_cy = df_cy_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
-        lt_py = df_py_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
-        lt_m = pd.merge(lt_cy, lt_py, on='Lead_Bucket', suffixes=('_CY', '_PY'))
-        
-        lt_cy_total = lt_m[f'{bv_col}_CY'].sum()
-        lt_py_total = lt_m[f'{bv_col}_PY'].sum()
-        lt_m['Label_CY'] = [f"<b>{v/1_000_000:.2f}M€</b><br>({(v/lt_cy_total*100):.1f}%)" if lt_cy_total > 0 else "0" for v in lt_m[f'{bv_col}_CY']]
-        lt_m['Label_PY'] = [f"<b>{v/1_000_000:.2f}M€</b><br>({(v/lt_py_total*100):.1f}%)" if lt_py_total > 0 else "0" for v in lt_m[f'{bv_col}_PY']]
-        
-        fig_lt = go.Figure()
-        fig_lt.add_trace(go.Bar(x=lt_m['Lead_Bucket'], y=lt_m[f'{bv_col}_CY']/1_000_000, name=cy_label, marker_color='#051C2C', text=lt_m['Label_CY'], textposition='inside'))
-        fig_lt.add_trace(go.Bar(x=lt_m['Lead_Bucket'], y=lt_m[f'{bv_col}_PY']/1_000_000, name=py_label, marker_color='#A4B6B0', text=lt_m['Label_PY'], textposition='outside'))
-        fig_lt.update_yaxes(ticksuffix="M", tickformat=".1f", title_text="Volume (M€)")
-        fig_lt.update_layout(barmode='group', margin=dict(t=50))
-        st.plotly_chart(fig_lt, use_container_width=True)
-        
-        st.markdown("<h4 style='color:#051C2C; margin-top:20px;'>🔍 Product Mix Breakdown by Decision Window</h4>", unsafe_allow_html=True)
-        sel_bucket = st.selectbox("Select specific Lead-Time Window to inspect product composition:", labels)
-        
-        mix_cy = df_cy_tags[df_cy_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
-        mix_py = df_py_tags[df_py_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
-        mix_m = pd.merge(mix_cy, mix_py, on='Strat_Zone', how='outer', suffixes=('_CY', '_PY')).fillna(0)
-        
-        mix_m['Var_Abs'] = mix_m[f'{bv_col}_CY'] - mix_m[f'{bv_col}_PY']
-        mix_m['Var_Pct'] = np.where(mix_m[f'{bv_col}_PY'] > 0, mix_m['Var_Abs'] / mix_m[f'{bv_col}_PY'] * 100, 0)
-        mix_m['Label_Text'] = [f"<b>{c/1e6:.1f}M€</b><br><span style='color:{'#28a745' if p>=0 else '#dc3545'};'>{p:+.1f}%</span>" for c, p in zip(mix_m[f'{bv_col}_CY'], mix_m['Var_Pct'])]
-        
-        fig_mix = go.Figure()
-        fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_CY']/1_000_000, name=cy_label, marker_color='#051C2C', text=mix_m['Label_Text'], textposition='outside'))
-        fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_PY']/1_000_000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{v/1e6:.1f}M€</b>" for v in mix_m[f'{bv_col}_PY']], textposition='outside'))
-        fig_mix.update_yaxes(ticksuffix="M", tickformat=".1f")
-        fig_mix.update_layout(barmode='group', margin=dict(t=50), title=f"Product Mix for [{sel_bucket}]")
-        st.plotly_chart(fig_mix, use_container_width=True)
-            
-       st.markdown("---")
-st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Greater China & HK Source Market Strategic Corridor (Sankey Matrix)</h3>", unsafe_allow_html=True)
+with tab3:
+    st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
 
-df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
-df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
+    st.markdown("---")
+    st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Booking Lead-Time & Decision Window Monitor</h3>", unsafe_allow_html=True)
+    df_cy_tags['Lead_Time'] = (df_cy_tags['Cons_Date'] - df_cy_tags['Sales_Date']).dt.days
+    df_py_tags['Lead_Time'] = (df_py_tags['Cons_Date'] - df_py_tags['Sales_Date']).dt.days
+    bins = [-999, 7, 30, 60, 90, 99999]
+    labels = ['0-7 Days (Last-Minute)', '8-30 Days (Short-Lead)', '31-60 Days (Regular)', '61-90 Days (Early-Bird)', '90+ Days (Long-Lock)']
+    df_cy_tags['Lead_Bucket'] = pd.cut(df_cy_tags['Lead_Time'], bins=bins, labels=labels)
+    df_py_tags['Lead_Bucket'] = pd.cut(df_py_tags['Lead_Time'], bins=bins, labels=labels)
+    lt_cy = df_cy_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
+    lt_py = df_py_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
+    lt_m = pd.merge(lt_cy, lt_py, on='Lead_Bucket', suffixes=('_CY', '_PY'))
 
-sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
+    lt_cy_total = lt_m[f'{bv_col}_CY'].sum()
+    lt_py_total = lt_m[f'{bv_col}_PY'].sum()
+    lt_m['Label_CY'] = [f"<b>{v/1_000_000:.2f}M€</b><br>({(v/lt_cy_total*100):.1f}%)" if lt_cy_total > 0 else "0" for v in lt_m[f'{bv_col}_CY']]
+    lt_m['Label_PY'] = [f"<b>{v/1_000_000:.2f}M€</b><br>({(v/lt_py_total*100):.1f}%)" if lt_py_total > 0 else "0" for v in lt_m[f'{bv_col}_PY']]
 
-if not sk_filtered.empty:
-    sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
-    sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
+    fig_lt = go.Figure()
+    fig_lt.add_trace(go.Bar(x=lt_m['Lead_Bucket'], y=lt_m[f'{bv_col}_CY']/1_000_000, name=cy_label, marker_color='#051C2C', text=lt_m['Label_CY'], textposition='inside'))
+    fig_lt.add_trace(go.Bar(x=lt_m['Lead_Bucket'], y=lt_m[f'{bv_col}_PY']/1_000_000, name=py_label, marker_color='#A4B6B0', text=lt_m['Label_PY'], textposition='outside'))
+    fig_lt.update_yaxes(ticksuffix="M", tickformat=".1f", title_text="Volume (M€)")
+    fig_lt.update_layout(barmode='group', margin=dict(t=50))
+    st.plotly_chart(fig_lt, use_container_width=True)
 
-    total_vol = sk_grp[bv_col].sum()
+    st.markdown("<h4 style='color:#051C2C; margin-top:20px;'>🔍 Product Mix Breakdown by Decision Window</h4>", unsafe_allow_html=True)
+    sel_bucket = st.selectbox("Select specific Lead-Time Window to inspect product composition:", labels)
 
-    src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
-    src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
+    mix_cy = df_cy_tags[df_cy_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
+    mix_py = df_py_tags[df_py_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
+    mix_m = pd.merge(mix_cy, mix_py, on='Strat_Zone', how='outer', suffixes=('_CY', '_PY')).fillna(0)
 
-    dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
-    dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
+    mix_m['Var_Abs'] = mix_m[f'{bv_col}_CY'] - mix_m[f'{bv_col}_PY']
+    mix_m['Var_Pct'] = np.where(mix_m[f'{bv_col}_PY'] > 0, mix_m['Var_Abs'] / mix_m[f'{bv_col}_PY'] * 100, 0)
+    mix_m['Label_Text'] = [f"<b>{c/1e6:.1f}M€</b><br><span style='color:{'#28a745' if p>=0 else '#dc3545'};'>{p:+.1f}%</span>" for c, p in zip(mix_m[f'{bv_col}_CY'], mix_m['Var_Pct'])]
 
-    nodes = list(src_tot.index) + list(dest_tot.index)
-    node_map = {name: i for i, name in enumerate(nodes)}
-    node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
+    fig_mix = go.Figure()
+    fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_CY']/1_000_000, name=cy_label, marker_color='#051C2C', text=mix_m['Label_Text'], textposition='outside'))
+    fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_PY']/1_000_000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{v/1e6:.1f}M€</b>" for v in mix_m[f'{bv_col}_PY']], textposition='outside'))
+    fig_mix.update_yaxes(ticksuffix="M", tickformat=".1f")
+    fig_mix.update_layout(barmode='group', margin=dict(t=50), title=f"Product Mix for [{sel_bucket}]")
+    st.plotly_chart(fig_mix, use_container_width=True)
 
-    # ===== 麦肯锡风格配色（深色、低饱和度、商务感）=====
-    mckinsey_colors = [
-        '#1E466E',  # 深蓝
-        '#3B5F8A',  # 中蓝
-        '#6C8EAD',  # 浅蓝灰
-        '#4A6A3E',  # 深绿
-        '#7A8E5E',  # 橄榄绿
-        '#8B5A4B',  # 红棕
-        '#A27C6B',  # 暖灰
-        '#5D6B7A',  # 钢蓝灰
-        '#B5927A',  # 陶土色
-        '#495D6B',  # 深海
-    ]
-    # 如果节点数超出预设颜色，循环使用
-    colors_node = (mckinsey_colors * ((len(nodes) // len(mckinsey_colors)) + 1))[:len(nodes)]
+    # ========== 桑基图部分（已修正缩进）==========
+    st.markdown("---")
+    st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Greater China & HK Source Market Strategic Corridor (Sankey Matrix)</h3>", unsafe_allow_html=True)
 
-    sources = [node_map[s] for s in sk_grp['Src_Node']]
-    targets = [node_map[t] for t in sk_grp['Strat_Zone']]
-    values = sk_grp[bv_col].round(0).tolist()
+    df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
+    df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
 
-    color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
-    def hex_to_rgba(h, a=0.5):
-        h = h.lstrip('#')
-        return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
-    # 连线颜色透明度降低至0.5，使整体更柔和
-    link_colors = [hex_to_rgba(color_map[t], 0.5) for t in sk_grp['Strat_Zone']]
-    link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
+    sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
 
-    fig_sankey = go.Figure(data=[go.Sankey(
-        arrangement="snap",           # 自动避免节点重叠
-        node=dict(
-            pad=40,                   # 节点间距适当增加
-            thickness=30,             # 节点宽度适中
-            line=dict(color="white", width=0.5),
-            label=node_display_labels,
-            color=colors_node,
-        ),
-        link=dict(
-            source=sources,
-            target=targets,
-            value=values,
-            color=link_colors,
-            customdata=link_texts,
-            hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>'
+    if not sk_filtered.empty:
+        sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
+        sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
+
+        total_vol = sk_grp[bv_col].sum()
+
+        src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
+        src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
+
+        dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
+        dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
+
+        nodes = list(src_tot.index) + list(dest_tot.index)
+        node_map = {name: i for i, name in enumerate(nodes)}
+        node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
+
+        # 麦肯锡风格配色
+        mckinsey_colors = [
+            '#1E466E', '#3B5F8A', '#6C8EAD', '#4A6A3E', '#7A8E5E',
+            '#8B5A4B', '#A27C6B', '#5D6B7A', '#B5927A', '#495D6B'
+        ]
+        colors_node = (mckinsey_colors * ((len(nodes) // len(mckinsey_colors)) + 1))[:len(nodes)]
+
+        sources = [node_map[s] for s in sk_grp['Src_Node']]
+        targets = [node_map[t] for t in sk_grp['Strat_Zone']]
+        values = sk_grp[bv_col].round(0).tolist()
+
+        color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
+        def hex_to_rgba(h, a=0.5):
+            h = h.lstrip('#')
+            return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
+        link_colors = [hex_to_rgba(color_map[t], 0.5) for t in sk_grp['Strat_Zone']]
+        link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
+
+        fig_sankey = go.Figure(data=[go.Sankey(
+            arrangement="snap",
+            node=dict(
+                pad=40,
+                thickness=30,
+                line=dict(color="white", width=0.5),
+                label=node_display_labels,
+                color=colors_node,
+            ),
+            link=dict(
+                source=sources,
+                target=targets,
+                value=values,
+                color=link_colors,
+                customdata=link_texts,
+                hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>'
+            )
+        )])
+        fig_sankey.update_layout(
+            height=700,
+            font=dict(size=12, color="#333333", family="Inter"),
+            margin=dict(l=40, r=40, t=60, b=40),
+            title=dict(
+                text="Source Market → Strategic Zone Flow (M€, % of total)",
+                font=dict(size=16, color="#051C2C", family="Playfair Display"),
+                x=0.5
+            ),
+            plot_bgcolor='#F9F9F9',
+            paper_bgcolor='#F9F9F9'
         )
-    )])
-    fig_sankey.update_layout(
-        height=700,                   # 略微增加高度，留出更多空间
-        font=dict(size=12, color="#333333", family="Inter"),  # 字号缩小，更显精致
-        margin=dict(l=40, r=40, t=60, b=40),
-        title=dict(
-            text="Source Market → Strategic Zone Flow (M€, % of total)",
-            font=dict(size=16, color="#051C2C", family="Playfair Display"),
-            x=0.5
-        ),
-        plot_bgcolor='#F9F9F9',      # 极浅灰背景，增加质感
-        paper_bgcolor='#F9F9F9'
-    )
-    st.plotly_chart(fig_sankey, use_container_width=True)
-else:
-    st.info("No corridor records matched for China/HK markers.")
+        st.plotly_chart(fig_sankey, use_container_width=True)
+    else:
+        st.info("No corridor records matched for China/HK markers.")
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Strategic Channel Cannibalization & Margin Quality Radar</h3>", unsafe_allow_html=True)
