@@ -86,7 +86,6 @@ def format_volume(val):
     return f"{val:,.0f}"
 
 def fmt_val(val, is_pct=False):
-    # 📌 Req 2: 矩阵内 Variance 强制红绿配色
     if is_pct:
         if pd.isna(val) or np.isinf(val) or val == 0: return "0.0%"
         sign = "+" if val > 0 else ""
@@ -105,10 +104,10 @@ def format_variance_cell(val, is_pct=False):
     else:
         sign = "+" if val > 0 else ""
         color = "#28a745" if val > 0 else "#dc3545"
-        return f'<span style="color:{color}; font-weight:600;">{sign}{val:,.2f}M€</span>'
+        return f'<span style="color:{color}; font-weight:600;">{sign}{val:,.2f}</span>'
 
 def custom_metric_card(title, cy_val, py_val, delta_pct, cy_format, py_format):
-    delta_color = "#28a745" if delta_pct > 0 else "#dc3545" if delta_pct < 0 else "#6c757d"
+    delta_color = "#28a745" if delta_pct >= 0 else "#dc3545"
     delta_sign = "+" if delta_pct > 0 else ""
     return f"""
     <div style="background-color: white; border-radius: 8px; padding: 15px 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border-top: 3px solid #A64B35; border-left: 4px solid #051C2C; margin-bottom: 15px; height: 100%;">
@@ -226,7 +225,7 @@ def build_strategic_summary_matrix(cy_df, py_df, bv_col):
     return merged
 
 # =================================================================
-# --- 4. McKinsey Visualization Plotting Engine ---
+# --- 4. Plotting & AI Engines ---
 # =================================================================
 def draw_pacing_curve_m(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
@@ -260,9 +259,6 @@ def draw_weekly_pace_chart_m(df_curve, cy_label, py_label, curr_symbol, info_tex
     fig.update_layout(title=dict(text=f"<b>Weekly Incremental Booking Velocity (M€)</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)), hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
     return fig
 
-# =================================================================
-# --- 5. AI Diagnostics System Prompt Configuration ---
-# =================================================================
 try:
     api_key = st.secrets["DEEPSEEK_API_KEY"]
 except:
@@ -270,7 +266,6 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-# 📌 Req 9: 注入地缘政治、中国官方旅游限制与全球大事
 def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Strategic Revenue Director for ClubMed. 
     Data Scope Environment: {context_info}
@@ -340,7 +335,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         st.divider()
         st.markdown("### ⏱️ Booking Window (Sales)")
-        # 📌 Req 1: Default setting starts from Sales Opening (index=0 changed)
         preset = st.selectbox("Quick Range Select", ["From Sales Opening", "Last 3 Months", "Last 1 Month", "Custom Range"], index=0)
         max_s = df['Sales_Date'].max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         
@@ -372,44 +366,49 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
         if sel_resort: d = d[d['Resort'].isin(sel_resort)]
         return d
+        
+    def apply_filters_no_mkt(idf, mode, y, seas, cs, ce, ss, se):
+        d = idf.copy()
+        d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
+        if mode == "Quick Select (Year/Season)":
+            if y is not None: d = d[d['Year'] == y]
+            if seas and seas != "All Year":
+                m_range = [1,6] if "S1" in seas else [7,12]
+                d = d[d['Month_Num'].between(*m_range)]
+        else: 
+            if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+            
+        # 📌 Req 2: intentionally bypass 'Market' filter for Sankey correlation independence
+        if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
+        if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
+        if sel_resort: d = d[d['Resort'].isin(sel_resort)]
+        return d
 
     df_cy = apply_filters(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
-    df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, 
-                          c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
-
+    df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
+    
     ref_y = sel_y if cons_mode.startswith("Quick") else c_start.year
-    df_ppy = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None,
-                           c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.replace(year=c_end.year-2)) if c_end else None,
-                           start_date.replace(year=start_date.year-2), end_date.replace(year=end_date.year-2))
+    df_ppy = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.replace(year=c_end.year-2)) if c_end else None, start_date.replace(year=start_date.year-2), end_date.replace(year=end_date.year-2))
 
-    df_cy = sanitize_channels(df_cy)
-    df_py = sanitize_channels(df_py)
-    df_ppy = sanitize_channels(df_ppy)
-
-    df_cy = df_cy[~df_cy['Segment'].str.lower().str.contains('mission', na=False)]
-    df_py = df_py[~df_py['Segment'].str.lower().str.contains('mission', na=False)]
-    df_ppy = df_ppy[~df_ppy['Segment'].str.lower().str.contains('mission', na=False)]
+    # 📌 Pre-tag globally for tab consistency
+    df_cy_tags = assign_strategic_tags(sanitize_channels(df_cy[~df_cy['Segment'].str.lower().str.contains('mission', na=False)]))
+    df_py_tags = assign_strategic_tags(sanitize_channels(df_py[~df_py['Segment'].str.lower().str.contains('mission', na=False)]))
+    df_ppy_tags = assign_strategic_tags(sanitize_channels(df_ppy[~df_ppy['Segment'].str.lower().str.contains('mission', na=False)]))
 
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
     chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Executive Dashboard", 
-        "🎢 Trajectory & Velocity", 
-        "🎯 Strategic Decision Canvas", 
-        "📋 Automated Weekly Diagnostics", 
-        "🤖 Strategic AI Advisor"
-    ])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🎯 Strategic Decision Canvas", "📋 Automated Weekly Diagnostics", "🤖 Strategic AI Advisor"])
 
     # =================================================================
     # 📊 TAB 1: EXECUTIVE DASHBOARD
     # =================================================================
     with tab1:
         st.markdown(f"<h3 style='margin-bottom:20px; font-weight: 700; color: #051C2C;'>Pacing Summary: {cy_label} vs {py_label}</h3>", unsafe_allow_html=True)
-        cy_v, py_v = df_cy[bv_col].sum(), df_py[bv_col].sum()
-        cy_h, py_h = df_cy['HN'].sum(), df_py['HN'].sum()
+        cy_v, py_v = df_cy_tags[bv_col].sum(), df_py_tags[bv_col].sum()
+        cy_h, py_h = df_cy_tags['HN'].sum(), df_py_tags['HN'].sum()
         cy_adr = cy_v/cy_h if cy_h > 0 else 0
         py_adr = py_v/py_h if py_h > 0 else 0
         
@@ -424,8 +423,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         col_l, col_r = st.columns([2, 1])
         with col_l:
-            cy_g = df_cy.groupby('Dest_Type')[[bv_col]].sum().reset_index()
-            py_g = df_py.groupby('Dest_Type')[[bv_col]].sum().reset_index()
+            cy_g = df_cy_tags.groupby('Dest_Type')[[bv_col]].sum().reset_index()
+            py_g = df_py_tags.groupby('Dest_Type')[[bv_col]].sum().reset_index()
             combined = pd.merge(cy_g, py_g, on='Dest_Type', how='outer', suffixes=('_CY', '_PY')).fillna(0)
             combined['YoY_Pct'] = np.where(combined[f'{bv_col}_PY'] > 0, (combined[f'{bv_col}_CY'] - combined[f'{bv_col}_PY']) / combined[f'{bv_col}_PY'] * 100, 0)
             text_cy = [f"<b>{format_volume(cy)}<br>({pct:+.1f}%)</b>" if py > 0 else f"<b>{format_volume(cy)}</b>" for cy, py, pct in zip(combined[f'{bv_col}_CY'], combined[f'{bv_col}_PY'], combined['YoY_Pct'])]
@@ -444,8 +443,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
         
         grp_cols = ['Segment', 'Channel_Group', 'Team_Group', 'reChannel']
-        cy_matrix_grp = df_cy.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
-        py_matrix_grp = df_py.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
+        cy_matrix_grp = df_cy_tags.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
+        py_matrix_grp = df_py_tags.groupby(grp_cols, dropna=False).agg({bv_col: 'sum', 'HN': 'sum'}).reset_index()
         m_df = pd.merge(cy_matrix_grp, py_matrix_grp, on=grp_cols, how='outer', suffixes=('_CY', '_PY')).fillna(0)
         for c in grp_cols: m_df[c] = m_df[c].astype(str).str.strip().replace(['nan', 'None', ''], '-')
         m_df = m_df.groupby(grp_cols).sum().reset_index().sort_values(['Segment', 'Channel_Group', f'{bv_col}_CY'], ascending=[True, True, False])
@@ -532,9 +531,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         html_out.append('</tbody></table>')
         st.markdown("".join(html_out), unsafe_allow_html=True)
 
-# =================================================================
-# 🎢 TAB 2: TRAJECTORY & VELOCITY
-# =================================================================
+    # =================================================================
+    # 🎢 TAB 2: TRAJECTORY & VELOCITY
+    # =================================================================
     with tab2:
         def get_curve_m(idf, cy_y, mode, seas, cs, ce, se):
             d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
@@ -568,9 +567,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Rolling 15-Days Sales Momentum (CY vs PY vs PPY)</h3>", unsafe_allow_html=True)
-        cy_15 = df_cy.groupby(df_cy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
-        py_15 = df_py.groupby(df_py['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
-        ppy_15 = df_ppy.groupby(df_ppy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        cy_15 = df_cy_tags.groupby(df_cy_tags['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        py_15 = df_py_tags.groupby(df_py_tags['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        ppy_15 = df_ppy_tags.groupby(df_ppy_tags['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
         
         tot_cy_15 = cy_15[bv_col].sum()
         tot_py_15 = py_15[bv_col].sum()
@@ -583,7 +582,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_trend_15.add_trace(go.Scatter(x=cy_15['Sales_Date'], y=py_15[bv_col]/1_000_000, name='PY Corresponding Daily Flow', mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), customdata=py_15[bv_col], hovertemplate='PY Absolute: %{customdata:,.0f} €<extra></extra>'))
         fig_trend_15.add_trace(go.Scatter(x=cy_15['Sales_Date'], y=ppy_15[bv_col]/1_000_000, name='PPY Corresponding Daily Flow', mode='lines', line=dict(color='#A64B35', width=1.5, dash='dot'), customdata=ppy_15[bv_col], hovertemplate='PPY Absolute: %{customdata:,.0f} €<extra></extra>'))
         
-        # 📌 Req 3: 放置在右上角且无遮挡
         fig_trend_15.add_annotation(
             xref="paper", yref="paper", x=0.98, xanchor="right", y=0.95, yanchor="top",
             text=f"<b>Rolling 15-Days Strategic Accumulation:</b><br>• CY Aggregate: {tot_cy_15/1_000_000:.2f} M€<br>• PY Aggregate: {tot_py_15/1_000_000:.2f} M€ (YoY Var: <span style='color:{'#28a745' if yoy_growth_15>=0 else '#dc3545'}; font-weight:700;'>{yoy_growth_15:+.1f}%</span>)<br>• PPY Aggregate: {tot_ppy_15/1_000_000:.2f} M€",
@@ -593,25 +591,24 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_trend_15.update_layout(hovermode="x unified", legend=dict(orientation="h", y=-0.15, x=0.5, xanchor='center'))
         st.plotly_chart(fig_trend_15, use_container_width=True)
 
-# =================================================================
-# 🎯 TAB 3: STRATEGIC DECISION CANVAS 
-# =================================================================
+    # =================================================================
+    # 🎯 TAB 3: STRATEGIC DECISION CANVAS
+    # =================================================================
     with tab3:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
         
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Booking Lead-Time & Decision Window Monitor</h3>", unsafe_allow_html=True)
-        df_cy['Lead_Time'] = (df_cy['Cons_Date'] - df_cy['Sales_Date']).dt.days
-        df_py['Lead_Time'] = (df_py['Cons_Date'] - df_py['Sales_Date']).dt.days
+        df_cy_tags['Lead_Time'] = (df_cy_tags['Cons_Date'] - df_cy_tags['Sales_Date']).dt.days
+        df_py_tags['Lead_Time'] = (df_py_tags['Cons_Date'] - df_py_tags['Sales_Date']).dt.days
         bins = [-999, 7, 30, 60, 90, 99999]
         labels = ['0-7 Days (Last-Minute)', '8-30 Days (Short-Lead)', '31-60 Days (Regular)', '61-90 Days (Early-Bird)', '90+ Days (Long-Lock)']
-        df_cy['Lead_Bucket'] = pd.cut(df_cy['Lead_Time'], bins=bins, labels=labels)
-        df_py['Lead_Bucket'] = pd.cut(df_py['Lead_Time'], bins=bins, labels=labels)
-        lt_cy = df_cy.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
-        lt_py = df_py.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
+        df_cy_tags['Lead_Bucket'] = pd.cut(df_cy_tags['Lead_Time'], bins=bins, labels=labels)
+        df_py_tags['Lead_Bucket'] = pd.cut(df_py_tags['Lead_Time'], bins=bins, labels=labels)
+        lt_cy = df_cy_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
+        lt_py = df_py_tags.groupby('Lead_Bucket', observed=False)[bv_col].sum().reset_index()
         lt_m = pd.merge(lt_cy, lt_py, on='Lead_Bucket', suffixes=('_CY', '_PY'))
         
-        # 📌 Req 4: PY柱状图标数值，包含百分比，删去饼图，CY在内，PY在外
         lt_cy_total = lt_m[f'{bv_col}_CY'].sum()
         lt_py_total = lt_m[f'{bv_col}_PY'].sum()
         lt_m['Label_CY'] = [f"<b>{v/1_000_000:.2f}M€</b><br>({(v/lt_cy_total*100):.1f}%)" if lt_cy_total > 0 else "0" for v in lt_m[f'{bv_col}_CY']]
@@ -623,44 +620,83 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_lt.update_yaxes(ticksuffix="M", tickformat=".1f", title_text="Volume (M€)")
         fig_lt.update_layout(barmode='group', margin=dict(t=50))
         st.plotly_chart(fig_lt, use_container_width=True)
+        
+        # 📌 Req 1: Add product mix breakdown drill-down for selected lead-time bucket
+        st.markdown("<h4 style='color:#051C2C; margin-top:20px;'>🔍 Product Mix Breakdown by Decision Window</h4>", unsafe_allow_html=True)
+        sel_bucket = st.selectbox("Select specific Lead-Time Window to inspect product composition:", labels)
+        
+        mix_cy = df_cy_tags[df_cy_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
+        mix_py = df_py_tags[df_py_tags['Lead_Bucket'] == sel_bucket].groupby('Strat_Zone')[bv_col].sum().reset_index()
+        mix_m = pd.merge(mix_cy, mix_py, on='Strat_Zone', how='outer', suffixes=('_CY', '_PY')).fillna(0)
+        
+        mix_m['Var_Abs'] = mix_m[f'{bv_col}_CY'] - mix_m[f'{bv_col}_PY']
+        mix_m['Var_Pct'] = np.where(mix_m[f'{bv_col}_PY'] > 0, mix_m['Var_Abs'] / mix_m[f'{bv_col}_PY'] * 100, 0)
+        mix_m['Label_Text'] = [f"<b>{c/1e6:.1f}M€</b><br><span style='color:{'#28a745' if p>=0 else '#dc3545'};'>{p:+.1f}%</span>" for c, p in zip(mix_m[f'{bv_col}_CY'], mix_m['Var_Pct'])]
+        
+        fig_mix = go.Figure()
+        fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_CY']/1_000_000, name=cy_label, marker_color='#051C2C', text=mix_m['Label_Text'], textposition='outside'))
+        fig_mix.add_trace(go.Bar(x=mix_m['Strat_Zone'], y=mix_m[f'{bv_col}_PY']/1_000_000, name=py_label, marker_color='#A4B6B0', text=[f"<b>{v/1e6:.1f}M€</b>" for v in mix_m[f'{bv_col}_PY']], textposition='outside'))
+        fig_mix.update_yaxes(ticksuffix="M", tickformat=".1f")
+        fig_mix.update_layout(barmode='group', margin=dict(t=50), title=f"Product Mix for [{sel_bucket}]")
+        st.plotly_chart(fig_mix, use_container_width=True)
             
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Greater China & HK Source Market Strategic Corridor (Sankey Matrix)</h3>", unsafe_allow_html=True)
-        sk_df = assign_strategic_tags(df_cy)
-        sk_filtered = sk_df[sk_df['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
+        
+        # 📌 Req 2: Sankey Matrix is independent of global Source Market filter.
+        df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
+        df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
+        
+        sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
         
         if not sk_filtered.empty:
-            # 📌 Req 5: 左侧切分 China 与 HK Market，并应用莫兰迪高级配色
-            sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'Hong Kong Market', 'Mainland China Market')
+            sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
             sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
             
-            src_totals = sk_grp.groupby('Src_Node')[bv_col].transform('sum')
-            sk_grp['Src_Share'] = sk_grp[bv_col] / src_totals * 100
+            total_vol = sk_grp[bv_col].sum()
             
-            node_labels = ['Mainland China Market', 'Hong Kong Market', 'ESAP SUN', 'ESAP mountain', 'GC SUN', 'GC mountain', 'IZ']
-            node_colors = ['#051C2C', '#1D263B', '#3BB9A2', '#4F7DA3', '#F98E7B', '#F9C851', '#6C757D']
-            node_map = {name: i for i, name in enumerate(node_labels)}
-            zone_colors = {'ESAP SUN': 'rgba(59, 185, 162, 0.4)', 'ESAP mountain': 'rgba(79, 125, 163, 0.4)', 'GC SUN': 'rgba(249, 142, 123, 0.4)', 'GC mountain': 'rgba(249, 200, 81, 0.4)', 'IZ': 'rgba(108, 117, 125, 0.4)'}
+            # Calculate Labels matching the beautiful reference
+            src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
+            src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
+            
+            dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
+            dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
+            
+            nodes = list(src_tot.index) + list(dest_tot.index)
+            node_map = {name: i for i, name in enumerate(nodes)}
+            node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
+            
+            # 📌 Req 2: High-end elegant color palette
+            colors_node = ['#8BA3C9', '#B596C5', '#88D6C9', '#4F7DA3', '#F4A28B', '#F1D17A', '#A2A9AF']
             
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
-            link_colors = [zone_colors.get(z, 'rgba(0,0,0,0.1)') for z in sk_grp['Strat_Zone']]
-            link_texts = [f"Respective Flow Allocation Share: {s:.1f}%" for s in sk_grp['Src_Share']]
+            
+            # Match link colors to target node colors but with transparency
+            color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
+            link_colors = [color_map[t].replace('#', 'rgba(') for t in sk_grp['Strat_Zone']]
+            # Convert hex to rgba manually for link pastel effect
+            def hex_to_rgba(h, a=0.3):
+                h = h.lstrip('#')
+                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
+            link_colors = [hex_to_rgba(color_map[t], 0.35) for t in sk_grp['Strat_Zone']]
+            
+            link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
             
             fig_sankey = go.Figure(data=[go.Sankey(
-                node=dict(pad=20, thickness=30, line=dict(color="white", width=1), label=node_labels, color=node_colors),
-                link=dict(source=sources, target=targets, value=values, color=link_colors, customdata=link_texts, hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br>OTB Absolute: %{value:,.0f} €<br><b>%{customdata}</b><extra></extra>')
+                node=dict(pad=30, thickness=40, line=dict(color="white", width=0.5), label=node_display_labels, color=colors_node),
+                link=dict(source=sources, target=targets, value=values, color=link_colors, customdata=link_texts, hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>')
             )])
-            fig_sankey.update_layout(height=550, font_size=13)
+            fig_sankey.update_layout(height=650, font_size=15, font_family="Inter")
             st.plotly_chart(fig_sankey, use_container_width=True)
         else:
             st.info("No corridor records matched for China/HK markers.")
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Strategic Channel Cannibalization & Margin Quality Radar</h3>", unsafe_allow_html=True)
-        df_cy_tags = assign_strategic_tags(df_cy)
-        df_py_tags = assign_strategic_tags(df_py)
+        # 📌 Req 3: 标注 variance 是指所在渠道 ADR 跟去年同期的对比
+        st.markdown("<p style='color: #6C757D; font-size: 0.95rem; font-style: italic; margin-top:-10px;'>* Note: Variance percentage (%) displayed on top of bars represents the YoY ADR (Average Daily Rate) change for the respective channel and zone.</p>", unsafe_allow_html=True)
         
         adr_cy = df_cy_tags.groupby(['Strat_Zone', 'Channel_Group']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
         adr_py = df_py_tags.groupby(['Strat_Zone', 'Channel_Group']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
@@ -673,7 +709,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         adr_m['Label_Text'] = [f"<b>{v:,.0f}</b><br><span style='color:{'#28a745' if g>=0 else '#dc3545'}; font-weight:700;'>{g:+.1f}%</span>" if pd.notna(g) else f"<b>{v:,.0f}</b>" for v, g in zip(adr_m['ADR_CY'], adr_m['YoY_Growth'])]
         
         fig_adr_comp = px.bar(adr_m, x='Strat_Zone', y='ADR_CY', color='Channel_Group', barmode='group', text='Label_Text', color_discrete_sequence=['#051C2C', '#A64B35'])
-        # 📌 Req 6: 调整柱状图上方的数字大小
         fig_adr_comp.update_traces(textposition='outside', textfont=dict(size=14))
         fig_adr_comp.update_xaxes(title_text=None)
         fig_adr_comp.update_yaxes(title_text="ADR")
@@ -681,96 +716,123 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         ta_only = df_cy_tags[(~df_cy_tags['TA_Group'].str.lower().isin(['direct', 'semi-direct', 'nan', '-', 'none', 'web', 'individual', 'fit'])) & (df_cy_tags['Strat_Port'] == 'TA端')]
         ta_rank = ta_only.groupby('TA_Group')[bv_col].sum().reset_index().sort_values(bv_col, ascending=False).head(5)
-        grand_total_pacing_bv = df_cy[bv_col].sum()
+        grand_total_pacing_bv = df_cy_tags[bv_col].sum()
         if not ta_rank.empty and grand_total_pacing_bv > 0:
             ta_rank['Market_Contribution_Rate'] = ta_rank[bv_col] / grand_total_pacing_bv
             fig_ta_rank = px.bar(ta_rank, x='TA_Group', y='Market_Contribution_Rate', text=ta_rank['Market_Contribution_Rate'].apply(lambda x: f"<b>{x*100:.1f}%</b>"), title="Top 5 Wholesaler/TA Groups Market Contribution Rate", color_discrete_sequence=['#1D263B'])
             fig_ta_rank.update_traces(textposition='outside')
             st.plotly_chart(fig_ta_rank, use_container_width=True)
 
+        # ---------------------------------------------------------------------------------
+        # 🌟 CORE ENGINE REPLACEMENT: Dynamic Pickup Forecast Matrix (Velocity Tuned)
+        # ---------------------------------------------------------------------------------
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Dynamic Baseline Forecast Matrix</h3>", unsafe_allow_html=True)
         
-        # 📌 Req 7: 添加带有文字和公式说明的面板
+        # 📌 Req 4 (第一): LaTeX 公式彻底美化
         st.markdown(r"""
-        <div style="background-color:#F8F9FA; padding:20px 25px; border-radius:8px; border:1px solid #EAECEF; border-left:5px solid #051C2C; margin-bottom:25px;">
-            <h4 style="margin-top:0; color:#051C2C; font-weight:600;">🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection</h4>
-            <p style="font-size:0.95rem; line-height:1.6; color:#333;">
-                <b>1. Historical Pace Ratio (HPR):</b> <br/>
-                We first benchmark our current volume against history. By determining how much of the final volume was typically secured by this exact point in time in the previous year, we create a base denominator.<br/>
-                $$\text{Pace Ratio} = \frac{\text{Historical OTB up to Exact Cutoff Date}}{\text{Historical Season Final Realized (100\%)}}$$
-            </p>
-            <p style="font-size:0.95rem; line-height:1.6; color:#333;">
-                <b>2. Velocity Tuning Factor (L15D):</b> <br/>
-                To account for current market momentum, we measure the booking velocity of the Last 15 Days against the exact same 15-day window historically. If factor > 1x, current demand is accelerating.<br/>
-                $$\text{Velocity Factor} = \frac{\text{CY Last 15 Days Intake Flow}}{\text{PY Last 15 Days Intake Flow}}$$
-            </p>
-            <p style="font-size:0.95rem; line-height:1.6; color:#333; margin-bottom:0;">
-                <b>3. Tuned Predicted Final:</b> <br/>
-                We calculate the baseline forecast and then apply the momentum factor to the <i>remaining unbooked gap</i>.<br/>
-                $$\text{Tuned Forecast} = \text{Current OTB} + \left( \frac{\text{Current OTB}}{\text{Pace Ratio}} - \text{Current OTB} \right) \times \text{Velocity Factor}$$
-            </p>
+        <div style="background-color:#F8F9FA; padding:25px 30px; border-radius:10px; border:1px solid #EAECEF; border-left:6px solid #051C2C; margin-bottom:25px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
+            <h4 style="margin-top:0; margin-bottom: 20px; color:#051C2C; font-weight:700;">🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection</h4>
+            <div style="margin-bottom: 15px;">
+                <b style="color:#333; font-size:1.05rem;">1. Historical Pace Ratio (HPR):</b><br/>
+                <span style="color:gray; font-size:0.9rem;">Measures historical booking velocity to define our baseline denominator.</span>
+                $$ \text{Pace Ratio} = \frac{\text{Historical OTB up to Exact Cutoff Date}}{\text{Historical Season Final Realized (100\%)}} $$
+            </div>
+            <div style="margin-bottom: 15px;">
+                <b style="color:#333; font-size:1.05rem;">2. Velocity Tuning Factor (L15D):</b><br/>
+                <span style="color:gray; font-size:0.9rem;">Tracks recent 15-day momentum relative to historical speed. (Multiplier > 1 implies acceleration).</span>
+                $$ \text{Velocity Factor} = \frac{\text{CY Last 15 Days Intake Flow}}{\text{PY Last 15 Days Intake Flow}} $$
+            </div>
+            <div>
+                <b style="color:#333; font-size:1.05rem;">3. Tuned Predicted Final:</b><br/>
+                <span style="color:gray; font-size:0.9rem;">Applies the momentum adjustment only to the remaining unbooked gap.</span>
+                $$ \text{Tuned Forecast} = \text{Current OTB} + \left( \frac{\text{Current OTB}}{\text{Pace Ratio}} - \text{Current OTB} \right) \times \text{Velocity Factor} $$
+            </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Calculate base metrics
         latest_sales_date = df['Sales_Date'].dropna().max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
-        st.info(f"**📅 Data Cutoff Date:** {latest_sales_date}")
+        st.info(f"**📅 System Data Cutoff Date:** {latest_sales_date}")
 
-        df_py_full = apply_filters(df, cons_mode, ref_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
-        full_py_total_bv = df_py_full[bv_col].sum()
-        current_py_otb_bv = df_py[bv_col].sum()
+        # 📌 Req 4 (第四): 提供选项卡让用户决定 Pace Ratio 是用 PY 还是 PPY，自动联动下方所有计算
+        ref_choice = st.radio("⚙️ EXTRACTED PACE RATIO REFERENCE (Select Benchmark):", ["PY (Previous Year)", "PPY (Pre-Previous Year)"], horizontal=True)
         
-        py_pace_ratio = current_py_otb_bv / full_py_total_bv if full_py_total_bv > 0 else 0.78
+        is_py = "PY" in ref_choice and "PPY" not in ref_choice
+        df_ref_tags = df_py_tags if is_py else df_ppy_tags
+        ref_y_val = sel_y - 1 if is_py else sel_y - 2
+        ref_label = "PY" if is_py else "PPY"
+
+        df_ref_full = apply_filters(df, cons_mode, ref_y_val if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-(sel_y-ref_y_val)) if c_start else None, c_end.replace(year=c_end.year-(sel_y-ref_y_val)) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
+        df_ref_full_tags = assign_strategic_tags(sanitize_channels(df_ref_full[~df_ref_full['Segment'].str.lower().str.contains('mission', na=False)]))
+
+        full_ref_total_bv = df_ref_full_tags[bv_col].sum()
+        current_ref_otb_bv = df_ref_tags[bv_col].sum()
         
-        cy_15d_tot = df_cy.groupby(df_cy['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
-        ref_15d_tot = df_py.groupby(df_py['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
+        pace_ratio = current_ref_otb_bv / full_ref_total_bv if full_ref_total_bv > 0 else 0.78
+        
+        cy_15d_tot = df_cy_tags.groupby(df_cy_tags['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
+        ref_15d_tot = df_ref_tags.groupby(df_ref_tags['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
         velocity_factor = cy_15d_tot / ref_15d_tot if ref_15d_tot > 0 else 1.0
 
+        # 📌 Req 4 (第二): 增加四个选项卡，体现 CY BV，去年(或前年) BV，Variance绝对值，红绿色百分比
+        cy_tot_bv = df_cy_tags[bv_col].sum()
+        ref_tot_bv = df_ref_tags[bv_col].sum()
+        var_abs = cy_tot_bv - ref_tot_bv
+        var_pct = var_abs / ref_tot_bv if ref_tot_bv > 0 else 0
+        
+        st.markdown(f"<h4 style='margin-bottom: 10px; color:#051C2C;'>Selected Period Cumulative Overview ({cy_label} vs {ref_label})</h4>", unsafe_allow_html=True)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.markdown(f"<div style='padding:15px; border-radius:8px; background:white; border-top: 4px solid #051C2C; box-shadow:0 2px 8px rgba(0,0,0,0.05);'><div style='font-size:0.85rem; color:#6C757D; font-weight:600;'>{cy_label} Volume (OTB)</div><div style='font-size:1.8rem; font-weight:700; color:#051C2C;'>{cy_tot_bv/1e6:.2f}M€</div></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div style='padding:15px; border-radius:8px; background:white; border-top: 4px solid #5C7080; box-shadow:0 2px 8px rgba(0,0,0,0.05);'><div style='font-size:0.85rem; color:#6C757D; font-weight:600;'>{ref_label} Volume (OTB)</div><div style='font-size:1.8rem; font-weight:700; color:#5C7080;'>{ref_tot_bv/1e6:.2f}M€</div></div>", unsafe_allow_html=True)
+        c3.markdown(f"<div style='padding:15px; border-radius:8px; background:white; border-top: 4px solid {'#28a745' if var_abs>=0 else '#dc3545'}; box-shadow:0 2px 8px rgba(0,0,0,0.05);'><div style='font-size:0.85rem; color:#6C757D; font-weight:600;'>Variance (Abs)</div><div style='font-size:1.8rem; font-weight:700; color:{'#28a745' if var_abs>=0 else '#dc3545'};'>{var_abs/1e6:+.2f}M€</div></div>", unsafe_allow_html=True)
+        c4.markdown(f"<div style='padding:15px; border-radius:8px; background:white; border-top: 4px solid {'#28a745' if var_pct>=0 else '#dc3545'}; box-shadow:0 2px 8px rgba(0,0,0,0.05);'><div style='font-size:0.85rem; color:#6C757D; font-weight:600;'>Variance (%)</div><div style='font-size:1.8rem; font-weight:700; color:{'#28a745' if var_pct>=0 else '#dc3545'};'>{var_pct*100:+.1f}%</div></div>", unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"""
         <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
-            <div style="background-color:white; padding:15px; border-radius:8px; border-top:3px solid #051C2C; width:48%; box-shadow: 0 4px 10px rgba(0,0,0,0.03);">
-                <div style="color:#6C757D; font-size:0.9rem; font-weight:600;">EXTRACTED PACE RATIO (PY)</div>
-                <div style="font-size:1.6rem; font-weight:700; color:#051C2C;">{py_pace_ratio*100:.2f}%</div>
+            <div style="background-color:#FAFAFA; padding:15px; border-radius:8px; border:1px solid #EAECEF; width:48%;">
+                <div style="color:#6C757D; font-size:0.9rem; font-weight:600;">ACTIVE PACE RATIO ({ref_label})</div>
+                <div style="font-size:1.5rem; font-weight:700; color:#051C2C;">{pace_ratio*100:.2f}%</div>
             </div>
-            <div style="background-color:white; padding:15px; border-radius:8px; border-top:3px solid #A64B35; width:48%; box-shadow: 0 4px 10px rgba(0,0,0,0.03);">
+            <div style="background-color:#FAFAFA; padding:15px; border-radius:8px; border:1px solid #EAECEF; width:48%;">
                 <div style="color:#6C757D; font-size:0.9rem; font-weight:600;">L15D VELOCITY TUNING FACTOR</div>
-                <div style="font-size:1.6rem; font-weight:700; color:#A64B35;">{velocity_factor:.2f}x</div>
+                <div style="font-size:1.5rem; font-weight:700; color:#A64B35;">{velocity_factor:.2f}x</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
-        # Matrix Generation
-        df_cy_tags['Baseline_Final'] = df_cy_tags[bv_col] / py_pace_ratio
+        # 6. Feed the rigorous model down into the Matrix Rows
+        df_cy_tags['Baseline_Final'] = df_cy_tags[bv_col] / pace_ratio
         df_cy_tags['Predicted_Final'] = df_cy_tags[bv_col] + (df_cy_tags['Baseline_Final'] - df_cy_tags[bv_col]) * velocity_factor
         
-        # 📌 Req 8: 隐藏IZ明细，将其直接重命名为 TOTAL 分组
-        df_cy_tags.loc[df_cy_tags['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE TOTAL'
-        
+        # Collapse IZ logic
+        df_cy_tags.loc[df_cy_tags['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
         cy_pred_g = df_cy_tags.groupby(['Strat_Zone', 'Resort'])['Predicted_Final'].sum().reset_index()
         
-        df_py_full_tags = assign_strategic_tags(df_py_full)
-        df_py_full_tags.loc[df_py_full_tags['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE TOTAL'
-        py_full_g = df_py_full_tags.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'PY_Full_Final'})
+        df_ref_full_tags.loc[df_ref_full_tags['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
+        ref_full_g = df_ref_full_tags.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'Ref_Full_Final'})
         
-        f_matrix = pd.merge(cy_pred_g, py_full_g, on=['Strat_Zone', 'Resort'], how='outer').fillna(0)
+        f_matrix = pd.merge(cy_pred_g, ref_full_g, on=['Strat_Zone', 'Resort'], how='outer').fillna(0)
         
-        f_matrix['Var_PY_Abs'] = f_matrix['Predicted_Final'] - f_matrix['PY_Full_Final']
-        f_matrix['Var_PY_Pct'] = np.where(f_matrix['PY_Full_Final'] > 0, f_matrix['Var_PY_Abs'] / f_matrix['PY_Full_Final'], 0)
+        f_matrix['Var_Ref_Abs'] = f_matrix['Predicted_Final'] - f_matrix['Ref_Full_Final']
+        f_matrix['Var_Ref_Pct'] = np.where(f_matrix['Ref_Full_Final'] > 0, f_matrix['Var_Ref_Abs'] / f_matrix['Ref_Full_Final'], 0)
+        
         f_matrix = f_matrix.sort_values(['Strat_Zone', 'Predicted_Final'], ascending=[True, False])
         
-        # HTML 渲染（包含 Subtotal 及 Grand Total）
-        html_pred = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
-        html_pred.append('<th rowspan="2" class="th-main th-dark" style="width:20%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:20%;">Resort / Pool</th><th rowspan="2" class="th-main th-cy" style="width:15%;">Tuned Forecast Final (CY)</th><th rowspan="2" class="th-main th-py" style="width:15%; border-right: 2px solid #ffffff;">PY Full Final Realized</th><th colspan="2" class="th-main th-var" style="width:30%;">Vs PY Full Variance</th></tr><tr>')
-        html_pred.append('<th class="th-sub th-var">Abs (M€)</th><th class="th-sub th-var">Var %</th></tr></thead><tbody>')
+        # 📌 Req 4 (第三): 添加动态标题，去掉表格内部的 M€ 单位
+        st.markdown(f"<h4 style='color:#051C2C; margin-top:30px; font-weight:700;'>🏢 Resort-Level Tuned Forecast Dashboard ({chart_info}) - Unit: M€</h4>", unsafe_allow_html=True)
         
-        grand_tot_pred, grand_tot_py = 0, 0
+        html_pred = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
+        html_pred.append(f'<th rowspan="2" class="th-main th-dark" style="width:20%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:20%;">Resort / Pool</th><th rowspan="2" class="th-main th-cy" style="width:15%;">Tuned Forecast Final (CY)</th><th rowspan="2" class="th-main th-py" style="width:15%; border-right: 2px solid #ffffff;">{ref_label} Full Final Realized</th><th colspan="2" class="th-main th-var" style="width:30%;">Vs {ref_label} Full Variance</th></tr><tr>')
+        html_pred.append('<th class="th-sub th-var">Abs</th><th class="th-sub th-var">Var %</th></tr></thead><tbody>')
+        
+        grand_tot_pred, grand_tot_ref = 0, 0
         for zone in f_matrix['Strat_Zone'].unique():
             z_df = f_matrix[f_matrix['Strat_Zone'] == zone]
             sub_tot_pred = z_df['Predicted_Final'].sum()
-            sub_tot_py = z_df['PY_Full_Final'].sum()
+            sub_tot_ref = z_df['Ref_Full_Final'].sum()
             grand_tot_pred += sub_tot_pred
-            grand_tot_py += sub_tot_py
+            grand_tot_ref += sub_tot_ref
             
             zone_rowspan = len(z_df) + 1 # Include subtotal row
             
@@ -782,22 +844,23 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     first = False
                 
                 p_m = row['Predicted_Final'] / 1_000_000
-                py_m = row['PY_Full_Final'] / 1_000_000
-                v_py_a = row['Var_PY_Abs'] / 1_000_000
-                v_py_p = row['Var_PY_Pct']
+                ref_m = row['Ref_Full_Final'] / 1_000_000
+                v_ref_a = row['Var_Ref_Abs'] / 1_000_000
+                v_ref_p = row['Var_Ref_Pct']
                 
-                html_pred.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td><b style="color:#051C2C;">{p_m:.2f}M€</b></td><td style="border-right: 2px solid #CBD5E1 !important;">{py_m:.2f}M€</td>')
-                html_pred.append(f'<td>{format_variance_cell(v_py_a)}</td><td>{format_variance_cell(v_py_p, is_pct=True)}</td></tr>')
+                # Removed 'M€' from strings per user request
+                html_pred.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td><b style="color:#051C2C;">{p_m:.2f}</b></td><td style="border-right: 2px solid #CBD5E1 !important;">{ref_m:.2f}</td>')
+                html_pred.append(f'<td>{format_variance_cell(v_ref_a)}</td><td>{format_variance_cell(v_ref_p, is_pct=True)}</td></tr>')
             
             # Subtotal row
-            sub_var_abs = (sub_tot_pred - sub_tot_py) / 1_000_000
-            sub_var_pct = (sub_tot_pred - sub_tot_py) / sub_tot_py if sub_tot_py > 0 else 0
-            html_pred.append(f'<tr class="subtotal-row"><td class="cell-detail-left"><b>{zone} Subtotal</b></td><td><b>{sub_tot_pred/1e6:.2f}M€</b></td><td style="border-right: 2px solid #CBD5E1 !important;"><b>{sub_tot_py/1e6:.2f}M€</b></td><td>{format_variance_cell(sub_var_abs)}</td><td>{format_variance_cell(sub_var_pct, True)}</td></tr>')
+            sub_var_abs = (sub_tot_pred - sub_tot_ref) / 1_000_000
+            sub_var_pct = (sub_tot_pred - sub_tot_ref) / sub_tot_ref if sub_tot_ref > 0 else 0
+            html_pred.append(f'<tr class="subtotal-row"><td class="cell-detail-left"><b>{zone} Subtotal</b></td><td><b>{sub_tot_pred/1e6:.2f}</b></td><td style="border-right: 2px solid #CBD5E1 !important;"><b>{sub_tot_ref/1e6:.2f}</b></td><td>{format_variance_cell(sub_var_abs)}</td><td>{format_variance_cell(sub_var_pct, True)}</td></tr>')
 
         # Grand Total
-        gt_var_abs = (grand_tot_pred - grand_tot_py) / 1_000_000
-        gt_var_pct = (grand_tot_pred - grand_tot_py) / grand_tot_py if grand_tot_py > 0 else 0
-        html_pred.append(f'<tr class="grand-total-row"><td colspan="2" class="cell-detail-left"><b>GLOBAL OMNI OUTLOOK FORECAST</b></td><td><b>{grand_tot_pred/1e6:.2f}M€</b></td><td style="border-right: 2px solid #CBD5E1 !important;"><b>{grand_tot_py/1e6:.2f}M€</b></td><td>{format_variance_cell(gt_var_abs)}</td><td>{format_variance_cell(gt_var_pct, True)}</td></tr>')
+        gt_var_abs = (grand_tot_pred - grand_tot_ref) / 1_000_000
+        gt_var_pct = (grand_tot_pred - grand_tot_ref) / grand_tot_ref if grand_tot_ref > 0 else 0
+        html_pred.append(f'<tr class="grand-total-row"><td colspan="2" class="cell-detail-left"><b>GLOBAL OMNI OUTLOOK FORECAST</b></td><td><b>{grand_tot_pred/1e6:.2f}</b></td><td style="border-right: 2px solid #CBD5E1 !important;"><b>{grand_tot_ref/1e6:.2f}</b></td><td>{format_variance_cell(gt_var_abs)}</td><td>{format_variance_cell(gt_var_pct, True)}</td></tr>')
         
         html_pred.append('</tbody></table>')
         st.markdown("".join(html_pred), unsafe_allow_html=True)
@@ -807,7 +870,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 # =================================================================
     with tab4:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>📋 Automated Weekly Executive Diagnostics</h2>", unsafe_allow_html=True)
-        strat_matrix = build_strategic_summary_matrix(df_cy, df_py, bv_col)
+        strat_matrix = build_strategic_summary_matrix(df_cy_tags, df_py_tags, bv_col)
         
         st.markdown("""
         <div style="background-color:#F4F7F9; padding:18px 22px; border-radius:6px; border-left:5px solid #051C2C; margin-bottom:20px;">
@@ -820,8 +883,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         st.markdown("### 📊 Tabular Visual Overlay: Strategic Port vs Zone Variance")
         
-        tab4_cy_tot = df_cy[bv_col].sum()
-        tab4_py_tot = df_py[bv_col].sum()
+        tab4_cy_tot = df_cy_tags[bv_col].sum()
+        tab4_py_tot = df_py_tags[bv_col].sum()
         tab4_diff = tab4_cy_tot - tab4_py_tot
         tab4_pct = (tab4_diff / tab4_py_tot * 100) if tab4_py_tot > 0 else 0.0
 
@@ -872,7 +935,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             with st.spinner("AI 正在结合硬性渠道成本结构与宏观政经地缘变局破局中..."):
                 matrix_str = strat_matrix.to_string(index=False)
                 chat_history = []
-                # 📌 Req 9: 融入地缘政治背景系统提示词后生成洞察
                 report_out = generate_weekly_diagnostics(chart_info, matrix_str, chat_history, "基于以上战区及端口数据，融合中日政策环境限制、燃油成本等地缘要素，生成一份深度管理层复盘建议报告。")
                 st.markdown("---")
                 st.markdown("### 🏢 Executive Weekly Advisory Insight")
@@ -894,7 +956,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 with st.chat_message("user"): st.write(prompt)
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing context, geopolitics & browsing trends..."):
-                        insights = generate_weekly_diagnostics(chart_info, df_cy.head(10).to_string(), st.session_state.messages[:-1], prompt)
+                        insights = generate_weekly_diagnostics(chart_info, df_cy_tags.head(10).to_string(), st.session_state.messages[:-1], prompt)
                         st.info(insights)
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
