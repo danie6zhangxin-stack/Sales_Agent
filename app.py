@@ -725,34 +725,20 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Dynamic Baseline Forecast Matrix</h3>", unsafe_allow_html=True)
         
         st.markdown("""
-        <div style="background-color:#F8F9FA; padding:25px 30px; border-radius:10px; border:1px solid #EAECEF; border-left:6px solid #051C2C; margin-bottom:25px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
-            <h4 style="margin-top:0; margin-bottom: 20px; color:#051C2C; font-weight:700;">🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection</h4>
+            ### 🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection
             
-            <div style="margin-bottom: 15px;">
-                <b style="color:#333; font-size:1.05rem;">1. Historical Pace Ratio (HPR):</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Measures historical booking velocity to define our baseline denominator.</span><br/>
-                <div style="font-family: monospace; background-color:#EAECEF; padding:8px 12px; border-radius:4px; margin-top:8px; color:#051C2C; font-size:0.95rem; font-weight:600;">
-                    Pace Ratio = Historical OTB up to Exact Cutoff Date / Historical Season Final Realized (100%)
-                </div>
-            </div>
+            **1. Historical Pace Ratio (HPR)**  
+            Measures historical booking velocity to define our baseline denominator.  
+            > `Pace Ratio = Historical OTB up to Exact Cutoff Date / Historical Season Final Realized (100%)`
             
-            <div style="margin-bottom: 15px;">
-                <b style="color:#333; font-size:1.05rem;">2. Velocity Tuning Factor (L15D):</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Tracks recent 15-day momentum relative to historical speed. (Multiplier > 1 implies acceleration).</span><br/>
-                <div style="font-family: monospace; background-color:#EAECEF; padding:8px 12px; border-radius:4px; margin-top:8px; color:#051C2C; font-size:0.95rem; font-weight:600;">
-                    Velocity Factor = CY Last 15 Days Intake Flow / PY Last 15 Days Intake Flow
-                </div>
-            </div>
+            **2. Velocity Tuning Factor (L15D)**  
+            Tracks recent 15-day momentum relative to historical speed. (Multiplier > 1 implies acceleration).  
+            > `Velocity Factor = CY Last 15 Days Intake Flow / PY Last 15 Days Intake Flow`
             
-            <div>
-                <b style="color:#333; font-size:1.05rem;">3. Tuned Predicted Final:</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Applies the momentum adjustment only to the remaining unbooked gap.</span><br/>
-                <div style="font-family: monospace; background-color:#EAECEF; padding:8px 12px; border-radius:4px; margin-top:8px; color:#051C2C; font-size:0.95rem; font-weight:600;">
-                    Tuned Forecast = Current OTB + [(Current OTB / Pace Ratio) - Current OTB] * Velocity Factor
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            **3. Tuned Predicted Final**  
+            Applies the momentum adjustment only to the remaining unbooked gap.  
+            > `Tuned Forecast = Current OTB + [(Current OTB / Pace Ratio) - Current OTB] × Velocity Factor`
+            """)
         
         latest_sales_date = df['Sales_Date'].dropna().max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         st.info(f"**📅 System Data Cutoff Date:** {latest_sales_date}")
