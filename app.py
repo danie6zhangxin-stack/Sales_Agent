@@ -598,7 +598,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_trend_15.add_annotation(
             xref="paper", yref="paper", x=0.02, xanchor="left", y=0.95, yanchor="top",
             text=f"<b>Rolling 15-Days Strategic Accumulation:</b><br>• CY Aggregate: {tot_cy_15/1_000_000:.2f} M€<br>• PY Aggregate: {tot_py_15/1_000_000:.2f} M€ (YoY Target Change: <span style='color:{'green' if yoy_growth_15>=0 else 'red'}; font-weight:700;'>{yoy_growth_15:+.1f}%</span>)<br>• PPY Aggregate: {tot_ppy_15/1_000_000:.2f} M€ (vs PPY Baseline: <span style='color:{'green' if vs_ppy_growth_15>=0 else 'red'}; font-weight:700;'>{vs_ppy_growth_15:+.1f}%</span>)",
-            showarrow=False, bgcolor="rgba(255, 255, 255, 0.95)", bordercolor="#051C2C", borderwidth=1.5, padding=12
+            showarrow=False, bgcolor="rgba(255, 255, 255, 0.95)", bordercolor="#051C2C", borderwidth=1.5, borderpad=12
         )
         fig_trend_15.update_yaxes(ticksuffix="M", tickformat=".1f", title_text="Daily Velocity Profile (M€)")
         fig_trend_15.update_layout(hovermode="x unified", legend=dict(orientation="h", y=-0.15, x=0.5, xanchor='center'))
