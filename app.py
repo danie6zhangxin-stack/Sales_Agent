@@ -681,7 +681,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         adr_m = pd.merge(adr_cy, adr_py, on=['Strat_Zone', 'Channel_Group'], how='left', suffixes=('', '_OLD'))
         adr_m['YoY_Growth'] = (adr_m['ADR_CY'] - adr_m['ADR_PY']) / adr_m['ADR_PY'] * 100
-        adr_m['Label_Text'] = [f"{v:,.0f}<br>({g:+.1f}%)" if pd.notna(g) else f"{v:,.0f}" for v in adr_m['ADR_CY'] for g in adr_m['YoY_Growth']]
+        adr_m['Label_Text'] = [f"{v:,.0f}<br>({g:+.1f}%)" if pd.notna(g) else f"{v:,.0f}" for v, g in zip(adr_m['ADR_CY'], adr_m['YoY_Growth'])]
         
         fig_adr_comp = px.bar(adr_m, x='Strat_Zone', y='ADR_CY', color='Channel_Group', barmode='group', text='Label_Text', color_discrete_sequence=['#051C2C', '#A64B35'], title="ADR Comparison across 5 Strategic Zones: Direct vs Indirect (With YoY %)")
         fig_adr_comp.update_traces(textposition='outside')
