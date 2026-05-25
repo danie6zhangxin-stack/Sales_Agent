@@ -638,56 +638,90 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_mix.update_layout(barmode='group', margin=dict(t=50), title=f"Product Mix for [{sel_bucket}]")
         st.plotly_chart(fig_mix, use_container_width=True)
             
-        st.markdown("---")
-        st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Greater China & HK Source Market Strategic Corridor (Sankey Matrix)</h3>", unsafe_allow_html=True)
-        
-        df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
-        df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
-        
-        sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
-        
-        if not sk_filtered.empty:
-            sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
-            sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
+       st.markdown("---")
+            st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Greater China & HK Source Market Strategic Corridor (Sankey Matrix)</h3>", unsafe_allow_html=True)
             
-            total_vol = sk_grp[bv_col].sum()
+            df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
+            df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
             
-            src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
-            src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
+            sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
             
-            dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
-            dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
+            if not sk_filtered.empty:
+                sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
+                sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
             
-            nodes = list(src_tot.index) + list(dest_tot.index)
-            node_map = {name: i for i, name in enumerate(nodes)}
-            node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
+                total_vol = sk_grp[bv_col].sum()
             
-            colors_node = ['#8BA3C9', '#B596C5', '#88D6C9', '#4F7DA3', '#F4A28B', '#F1D17A', '#A2A9AF']
+                # 计算源节点百分比和金额
+                src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
+                src_labels = {}
+                for s, v in src_tot.items():
+                    pct = (v / total_vol) * 100
+                    src_labels[s] = f"{s} ({pct:.1f}%, {v/1e6:.1f}M€)"
             
-            sources = [node_map[s] for s in sk_grp['Src_Node']]
-            targets = [node_map[t] for t in sk_grp['Strat_Zone']]
-            values = sk_grp[bv_col].round(0).tolist()
+                # 计算目标节点百分比和金额
+                dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
+                dest_labels = {}
+                for d, v in dest_tot.items():
+                    pct = (v / total_vol) * 100
+                    dest_labels[d] = f"{d} ({pct:.1f}%, {v/1e6:.1f}M€)"
             
-            color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
-            def hex_to_rgba(h, a=0.3):
-                h = h.lstrip('#')
-                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
-            link_colors = [hex_to_rgba(color_map[t], 0.35) for t in sk_grp['Strat_Zone']]
-            link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
+                nodes = list(src_tot.index) + list(dest_tot.index)
+                node_map = {name: i for i, name in enumerate(nodes)}
+                node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
             
-            fig_sankey = go.Figure(data=[go.Sankey(
-                node=dict(pad=30, thickness=40, line=dict(color="white", width=0.5), label=node_display_labels, color=colors_node),
-                link=dict(source=sources, target=targets, value=values, color=link_colors, customdata=link_texts, hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>')
-            )])
-            fig_sankey.update_layout(
-                height=650, 
-                font=dict(size=14, color="black", family="Inter"),
-                plot_bgcolor='white',
-                paper_bgcolor='white'
-            )
-            st.plotly_chart(fig_sankey, use_container_width=True)
-        else:
-            st.info("No corridor records matched for China/HK markers.")
+                # 动态生成颜色
+                n_nodes = len(nodes)
+                colors_node = px.colors.qualitative.Set3 * ((n_nodes // 10) + 1)
+                colors_node = colors_node[:n_nodes]
+            
+                sources = [node_map[s] for s in sk_grp['Src_Node']]
+                targets = [node_map[t] for t in sk_grp['Strat_Zone']]
+                values = sk_grp[bv_col].round(0).tolist()
+            
+                # 连线颜色：基于目标节点颜色
+                color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
+                def hex_to_rgba(h, a=0.6):
+                    h = h.lstrip('#')
+                    return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
+                link_colors = [hex_to_rgba(color_map[t], 0.6) for t in sk_grp['Strat_Zone']]
+            
+                # 悬停信息显示更详细的流量
+                link_texts = [f"Flow: {v/1e6:.2f} M€" for v in values]
+            
+                fig_sankey = go.Figure(data=[go.Sankey(
+                    arrangement="snap",
+                    node=dict(
+                        pad=45,                  # 适当增加间距避免标签拥挤
+                        thickness=28,
+                        line=dict(color="white", width=0.5),
+                        label=node_display_labels,
+                        color=colors_node,
+                    ),
+                    link=dict(
+                        source=sources,
+                        target=targets,
+                        value=values,
+                        color=link_colors,
+                        customdata=link_texts,
+                        hovertemplate='%{source.label}<br>→ %{target.label}<br><b>%{customdata}</b><extra></extra>'
+                    )
+                )])
+                fig_sankey.update_layout(
+                    height=650,
+                    font=dict(size=11, family="Inter", color="#333"),
+                    margin=dict(l=40, r=40, t=50, b=20),
+                    title=dict(
+                        text="Source Market → Strategic Zone Flow (Percentage & Volume)",
+                        font=dict(size=16, color="#051C2C"),
+                        x=0.5
+                    ),
+                    plot_bgcolor='white',
+                    paper_bgcolor='white'
+                )
+                st.plotly_chart(fig_sankey, use_container_width=True)
+            else:
+                st.info("No corridor records matched for China/HK markers.")
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Strategic Channel Cannibalization & Margin Quality Radar</h3>", unsafe_allow_html=True)
