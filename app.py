@@ -79,8 +79,23 @@ CSS_STYLE = """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
 # =================================================================
-# --- 2. HTML Helper Functions for Custom KPIs ---
+# --- 2. Core Formatting & HTML Helper Functions (Hoisted to top) ---
 # =================================================================
+def format_volume(val):
+    if pd.isna(val) or val == 0: return "0"
+    if abs(val) >= 1_000_000: return f"{val/1_000_000:,.1f}M"
+    elif abs(val) >= 1_000: return f"{val/1_000:,.1f}k"
+    return f"{val:,.0f}"
+
+def fmt_val(val, is_pct=False):
+    if is_pct:
+        if pd.isna(val) or np.isinf(val) or val == 0: return "0.0%"
+        sign = "+" if val > 0 else ""
+        cls = "pos-var" if val > 0 else "neg-var"
+        return f'<span class="{cls}">{sign}{val*100:.1f}%</span>'
+    else:
+        return format_volume(val)
+
 def custom_metric_card(title, cy_val, py_val, delta_pct, cy_format, py_format):
     delta_color = "#28a745" if delta_pct > 0 else "#dc3545" if delta_pct < 0 else "#6c757d"
     delta_sign = "+" if delta_pct > 0 else ""
@@ -111,38 +126,8 @@ def custom_share_card(title, cy_share, py_share, cy_abs, py_abs, curr_sym):
     </div>
     """
 
-def fmt_val(val, is_pct=False):
-    if is_pct:
-        if pd.isna(val) or np.isinf(val) or val == 0: return "0.0%"
-        sign = "+" if val > 0 else ""
-        cls = "pos-var" if val > 0 else "neg-var"
-        return f'<span class="{cls}">{sign}{val*100:.1f}%</span>'
-    else:
-        if pd.isna(val): return "0"
-        return f"{val:,.0f}"
-
 # =================================================================
-# --- 3. AI Engine Initialization & Connectors ---
-# =================================================================
-try:
-    api_key = st.secrets["DEEPSEEK_API_KEY"]
-except:
-    api_key = "sk-xxxxxxxxxxxxxxxx" 
-
-llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
-
-def get_web_search_context(query):
-    try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
-            if not results: return "No relevant macro developments found."
-            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-    except Exception:
-        return "Web macro radar currently offline."
-
-# =================================================================
-# --- 4. Core Data Cleaning & Strategic Mapping Logic ---
+# --- 3. Core Data Cleaning & Strategic Mapping Logic ---
 # =================================================================
 @st.cache_data
 def load_and_clean(file):
@@ -237,8 +222,87 @@ def assign_strategic_tags(idf):
     return d
 
 # =================================================================
-# --- 6. AI Sub-Engine Core Prompts (Req 7 Cost & Macro Guided) ---
+# --- 4. Plotting Functions (Hoisted to top) ---
 # =================================================================
+def draw_pacing_curve(df_curve, cy_label, py_label, curr_symbol, info_text):
+    if df_curve is None or df_curve.empty: return go.Figure()
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3], vertical_spacing=0.08)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['CY'], name=cy_label, mode='lines', line=dict(color='#1D263B', width=3), hovertemplate='<b>CY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['PY'], name=py_label, mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash'), hovertemplate='<b>PY:</b> %{y:,.1f}<extra></extra>'), row=1, col=1)
+    
+    df_curve['Gap_Pos'] = df_curve['Gap'].clip(lower=0)
+    df_curve['Gap_Neg'] = df_curve['Gap'].clip(upper=0)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Pos'], fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.3)', showlegend=False, hovertemplate='<b>Ahead (+):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_Neg'], fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.3)', showlegend=False, hovertemplate='<b>Behind (-):</b> %{y:,.1f}<extra></extra>'), row=2, col=1)
+    
+    max_idx = df_curve['Gap'].abs().idxmax()
+    if pd.notna(max_idx):
+        max_row = df_curve.loc[max_idx]
+        cy_f, py_f, gap_f = format_volume(max_row['CY']), format_volume(max_row['PY']), format_volume(max_row['Gap'])
+        fig.add_annotation(x=max_row['Sales_Date'], y=max_row['CY'], text=f"<b>Max Gap: {max_row['Sales_Date'].strftime('%Y-%b-%d')}</b><br>CY: {curr_symbol}{cy_f}<br>PY: {curr_symbol}{py_f}<br>Diff: {curr_symbol}{gap_f}", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=2, arrowcolor="#A64B35", ax=0, ay=-60, bgcolor="white", bordercolor="#A64B35", borderwidth=1.5, row=1, col=1)
+        
+    sign = np.sign(df_curve['Gap'].round(0))
+    signchange = ((np.roll(sign, 1) - sign) != 0).astype(int)
+    signchange[0] = 0
+    crosses = df_curve.index[signchange == 1].tolist()
+    for idx in crosses:
+        if abs(df_curve.loc[idx, 'Gap']) < 5000: continue 
+        c_date, curr_gap, prev_gap = df_curve.loc[idx, 'Sales_Date'], df_curve.loc[idx, 'Gap'], df_curve.loc[idx-1, 'Gap']
+        if prev_gap > 0 and curr_gap < 0: txt = f"📉 PY catches up<br>{c_date.strftime('%b %d')}"
+        elif prev_gap < 0 and curr_gap > 0: txt = f"🚀 CY overtakes<br>{c_date.strftime('%b %d')}"
+        else: continue
+        fig.add_annotation(x=c_date, y=0, text=txt, showarrow=True, arrowhead=1, ax=0, ay=-40 if curr_gap>0 else 40, bgcolor="rgba(255,255,255,0.9)", bordercolor="gray", borderwidth=1, row=2, col=1)
+
+    fig.update_yaxes(ticksuffix="k", tickformat=",", row=1, col=1)
+    fig.update_yaxes(ticksuffix="k", tickformat=",", row=2, col=1)
+    fig.update_layout(title=dict(text=f"<b>Cumulative Pacing Trajectory</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)), hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
+    return fig
+
+def draw_weekly_pace_chart(df_curve, cy_label, py_label, curr_symbol, info_text):
+    if df_curve is None or df_curve.empty: return go.Figure()
+    df_weekly = df_curve.resample('W-MON', on='Sales_Date').sum().reset_index()
+    df_weekly['Weekly_Gap'] = df_weekly['CY_inc'] - df_weekly['PY_inc']
+    
+    fig = go.Figure()
+    colors = ['rgba(40,167,69,0.8)' if val >= 0 else 'rgba(220,53,69,0.8)' for val in df_weekly['Weekly_Gap']]
+    fig.add_trace(go.Bar(x=df_weekly['Sales_Date'], y=df_weekly['Weekly_Gap'], name='Weekly Variance', marker_color=colors, text=[f"{format_volume(v)}" for v in df_weekly['Weekly_Gap']], textposition='outside'))
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['CY_inc'], name=f"{cy_label} Weekly", mode='lines+markers', line=dict(color='#1D263B', width=2)))
+    fig.add_trace(go.Scatter(x=df_weekly['Sales_Date'], y=df_weekly['PY_inc'], name=f"{py_label} Weekly", mode='lines+markers', line=dict(color='#A4B6B0', width=2, dash='dash')))
+    
+    fig.update_yaxes(ticksuffix="k", tickformat=",")
+    fig.update_layout(title=dict(text=f"<b>⚡ Weekly Incremental Booking Velocity</b><br><sup style='color:gray;'>{info_text}</sup>", font=dict(family="Playfair Display", size=18)), hovermode="x unified", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', legend=dict(orientation="h", y=1.12, x=0.5, xanchor='center'))
+    return fig
+
+# =================================================================
+# --- 5. AI Engine Initialization & Connectors ---
+# =================================================================
+try:
+    api_key = st.secrets["DEEPSEEK_API_KEY"]
+except:
+    api_key = "sk-xxxxxxxxxxxxxxxx" 
+
+llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
+
+def get_web_search_context(query):
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+            if not results: return "No relevant macro developments found."
+            return "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+    except Exception:
+        return "Web macro radar currently offline."
+
+def build_strategic_summary_matrix(cy_df, py_df, bv_col):
+    cy_s = assign_strategic_tags(cy_df)
+    py_s = assign_strategic_tags(py_df)
+    cy_g = cy_s.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
+    py_g = py_s.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
+    merged = pd.merge(cy_g, py_g, on=['Strat_Port', 'Strat_Zone'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
+    merged['Variance'] = merged[f'{bv_col}_CY'] - merged[f'{bv_col}_PY']
+    merged['Var_Pct'] = np.where(merged[f'{bv_col}_PY'] > 0, merged['Variance'] / merged[f'{bv_col}_PY'] * 100, 0)
+    return merged
+
 def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Strategic Revenue Director for ClubMed. 
     Data Scope Environment: {context_info}
@@ -267,7 +331,7 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, 
         return f"Diagnostics engine timeout. Error: {e}"
 
 # =================================================================
-# --- 7. Main UI Flow & Routing ---
+# --- 6. Main UI Flow & Routing ---
 # =================================================================
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
@@ -344,7 +408,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, 
                           c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
 
-    # 动态抓取上上周期（前年）数据用于三维对齐对比
     ref_y = sel_y if cons_mode.startswith("Quick") else c_start.year
     df_ppy = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None,
                            c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.year-2) if c_end else None,
@@ -354,7 +417,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_py = sanitize_channels(df_py)
     df_ppy = sanitize_channels(df_ppy)
 
-    # 彻底清除使命渠道
     df_cy = df_cy[~df_cy['Segment'].str.lower().str.contains('mission', na=False)]
     df_py = df_py[~df_py['Segment'].str.lower().str.contains('mission', na=False)]
     df_ppy = df_ppy[~df_ppy['Segment'].str.lower().str.contains('mission', na=False)]
@@ -364,7 +426,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
     chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
-    # 🌟 Req 1: 全部 Tab 使用英文进行全球化统领
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Executive Dashboard", 
         "🎢 Trajectory & Velocity", 
@@ -412,6 +473,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
         st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏢 Channel Structure Deep-dive Matrix</h3>", unsafe_allow_html=True)
+        st.markdown(f"<div style='color:#6C757D; font-size:0.95rem; font-weight:500; margin-bottom:20px;'>{chart_info}</div>", unsafe_allow_html=True)
         
         total_cy_bv = df_cy[bv_col].sum()
         total_py_bv = df_py[bv_col].sum()
@@ -543,13 +605,25 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(draw_pacing_curve(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
         st.plotly_chart(draw_weekly_pace_chart(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
+        st.markdown("---")
+        st.markdown("### 📈 Dashboard 5: Rolling 15-Days Sales Momentum (CY vs PY vs PPY)")
+        cy_15 = df_cy.groupby(df_cy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        py_15 = df_py.groupby(df_py['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        ppy_15 = df_ppy.groupby(df_ppy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
+        
+        fig_trend_15 = go.Figure()
+        fig_trend_15.add_trace(go.Scatter(y=cy_15[bv_col]/1000, name=f'CY Rolling 15D', mode='lines+markers', line=dict(color='#051C2C', width=3)))
+        fig_trend_15.add_trace(go.Scatter(y=py_15[bv_col]/1000, name=f'PY 同期 15D', mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash')))
+        fig_trend_15.add_trace(go.Scatter(y=ppy_15[bv_col]/1000, name=f'PPY 同期 15D', mode='lines', line=dict(color='#A64B35', width=1.5, dash='dot')))
+        fig_trend_15.update_layout(title="Rolling 15-Days Pure Daily Booking Velocity Alignment Matrix (k)", hovermode="x unified")
+        st.plotly_chart(fig_trend_15, use_container_width=True)
+
 # =================================================================
-# 🎯 TAB 3: STRATEGIC DECISION CANVAS (Req 1-5 全球化重构升级)
+# 🎯 TAB 3: STRATEGIC DECISION CANVAS
 # =================================================================
     with tab3:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
         
-        # --- 看板 1: Booking Lead-Time 看板 ---
         st.markdown("---")
         st.markdown("### 📅 Dashboard 1: Booking Lead-Time & Decision Window Monitor")
         df_cy['Lead_Time'] = (df_cy['Cons_Date'] - df_cy['Sales_Date']).dt.days
@@ -568,54 +642,35 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_lt.update_layout(title="Booking Lead-Time Structural Distribution Shift (k)", barmode='group')
         st.plotly_chart(fig_lt, use_container_width=True)
         
-        # --- Req 2: 桑基图重构 (锁定中国/香港市场 -> Destination Type) ---
         st.markdown("---")
         st.markdown("### 🌍 Dashboard 2: Greater China & HK Source Market Strategic Corridor (Sankey Matrix)")
-        
         sk_df = assign_strategic_tags(df_cy)
-        # 严格提取包含中国、香港标签的客源大盘
         sk_filtered = sk_df[sk_df['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)]
         
         if not sk_filtered.empty:
-            # 确保节点按标准索引排序
             sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'Hong Kong Market', 'Mainland China Market')
             sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
-            
-            # 建立固定的 7 维节点映射字典
             node_labels = ['Mainland China Market', 'Hong Kong Market', 'ESAP SUN', 'ESAP mountain', 'GC SUN', 'GC mountain', 'IZ']
             node_colors = ['#051C2C', '#1D263B', '#22C55E', '#3B82F6', '#EF4444', '#F59E0B', '#6B7280']
             node_map = {name: i for i, name in enumerate(node_labels)}
-            
-            # 五大目的地采用固定高对比色流线分配
-            zone_colors = {
-                'ESAP SUN': 'rgba(34, 197, 94, 0.4)',
-                'ESAP mountain': 'rgba(59, 130, 246, 0.4)',
-                'GC SUN': 'rgba(239, 68, 68, 0.4)',
-                'GC mountain': 'rgba(245, 158, 11, 0.4)',
-                'IZ': 'rgba(107, 114, 128, 0.4)'
-            }
+            zone_colors = {'ESAP SUN': 'rgba(34, 197, 94, 0.4)', 'ESAP mountain': 'rgba(59, 130, 246, 0.4)', 'GC SUN': 'rgba(239, 68, 68, 0.4)', 'GC mountain': 'rgba(245, 158, 11, 0.4)', 'IZ': 'rgba(107, 114, 128, 0.4)'}
             
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
             link_colors = [zone_colors.get(z, 'rgba(0,0,0,0.1)') for z in sk_grp['Strat_Zone']]
             
-            # 计算最右侧各自市场的占比数据作为悬浮穿透补充
             fig_sankey = go.Figure(data=[go.Sankey(
                 node=dict(pad=15, thickness=20, line=dict(color="black", width=0.5), label=node_labels, color=node_colors),
-                link=dict(source=sources, target=targets, value=values, color=link_colors,
-                          hovertemplate='Source: %{source.label}<br>Destination: %{target.label}<br>Volume: %{value:,.0f} <extra></extra>')
+                link=dict(source=sources, target=targets, value=values, color=link_colors, hovertemplate='Source: %{source.label}<br>Destination: %{target.label}<br>Volume: %{value:,.0f} <extra></extra>')
             )])
             fig_sankey.update_layout(title_text="Greater China Pacing Volume Split Corridor (Hover for Abs Value)", font_size=12)
             st.plotly_chart(fig_sankey, use_container_width=True)
         else:
             st.info("No active booking flow found for China or Hong Kong market within current filters.")
 
-        # --- Req 3: 5 维多柱状 ADR 对比图 与 TA 剔除 EC 看板 ---
         st.markdown("---")
         st.markdown("### 📉 Dashboard 3: Strategic Channel Cannibalization & Margin Quality Radar")
-        
-        # 柱状图：展示 5 个战略目的地直直销与分销的真实 ADR 对比
         df_cy_tags = assign_strategic_tags(df_cy)
         df_py_tags = assign_strategic_tags(df_py)
         
@@ -628,56 +683,41 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         adr_m['YoY_Growth'] = (adr_m['ADR_CY'] - adr_m['ADR_PY']) / adr_m['ADR_PY'] * 100
         adr_m['Label_Text'] = [f"{v:,.0f}<br>({g:+.1f}%)" if pd.notna(g) else f"{v:,.0f}" for v in adr_m['ADR_CY'] for g in adr_m['YoY_Growth']]
         
-        fig_adr_comp = px.bar(adr_m, x='Strat_Zone', y='ADR_CY', color='Channel_Group', barmode='group',
-                              text='Label_Text', color_discrete_sequence=['#051C2C', '#A64B35'],
-                              title="ADR Comparison across 5 Strategic Zones: Direct vs Indirect (With YoY %)")
+        fig_adr_comp = px.bar(adr_m, x='Strat_Zone', y='ADR_CY', color='Channel_Group', barmode='group', text='Label_Text', color_discrete_sequence=['#051C2C', '#A64B35'], title="ADR Comparison across 5 Strategic Zones: Direct vs Indirect (With YoY %)")
         fig_adr_comp.update_traces(textposition='outside')
         st.plotly_chart(fig_adr_comp, use_container_width=True)
         
-        # 精密计算前五大 TA 旅行社，坚决剔除直销、EC端、nan、MICE、直客
         ta_only = df_cy_tags[
             (~df_cy_tags['TA_Group'].str.lower().isin(['direct', 'semi-direct', 'nan', '-', 'none', 'web', 'individual', 'fit'])) &
             (df_cy_tags['Strat_Port'] == 'TA端')
         ]
-        
         ta_rank = ta_only.groupby('TA_Group')[bv_col].sum().reset_index().sort_values(bv_col, ascending=False).head(5)
         grand_total_pacing_bv = df_cy[bv_col].sum()
         
         if not ta_rank.empty and grand_total_pacing_bv > 0:
             ta_rank['Market_Contribution_Rate'] = ta_rank[bv_col] / grand_total_pacing_bv
-            fig_ta_rank = px.bar(ta_rank, x='TA_Group', y='Market_Contribution_Rate',
-                                 text=ta_rank['Market_Contribution_Rate'].apply(lambda x: f"{x*100:.1f}%"),
-                                 title="Top 5 Wholesaler/TA Groups Market Contribution Rate (Share of Grand Total Pacing BV)",
-                                 color_discrete_sequence=['#1D263B'])
+            fig_ta_rank = px.bar(ta_rank, x='TA_Group', y='Market_Contribution_Rate', text=ta_rank['Market_Contribution_Rate'].apply(lambda x: f"{x*100:.1f}%"), title="Top 5 Wholesaler/TA Groups Market Contribution Rate (Share of Grand Total Pacing BV)", color_discrete_sequence=['#1D263B'])
             st.plotly_chart(fig_ta_rank, use_container_width=True)
         else:
             st.info("No structured TA agency records found within this specific matrix slice.")
 
-        # --- Req 4: 科学动态反推历史推进率与细颗粒度预测预测下钻矩阵 ---
         st.markdown("---")
         st.markdown("### 📈 Dashboard 4: Dynamic Baseline Forecast Matrix (By Destination by Resort)")
-        
-        # 彻底解决 78% 固定值问题：计算真实的积累推进进度系数
         full_py_total_bv = df[df['Year'] == (ref_y - 1)][bv_col].sum()
         current_py_otb_bv = df_py[bv_col].sum()
         
-        # 动态推演 Pace Ratio: 今年当前视窗对应的去年同期量 / 去年完结总盘
         if full_py_total_bv > 0 and current_py_otb_bv > 0:
             dynamic_pace_ratio = current_py_otb_bv / full_py_total_bv
         else:
-            dynamic_pace_ratio = 0.78 # 极端无历史切片时的科学安全兜底值
+            dynamic_pace_ratio = 0.78 
             
         st.metric(label=f"📊 Mathematical Model Dynamic Pace Ratio (Based on OTB_{ref_y-1} / FullYear_{ref_y-1})", value=f"{dynamic_pace_ratio*100:.2f}%")
         
-        # 计算细颗粒度下钻矩阵：By Destination By Resort
         df_cy_tags['Predicted_Final'] = df_cy_tags[bv_col] / dynamic_pace_ratio
-        
-        # 聚合提取 PY Final 和 PPY Final 用于横向强力比对
         cy_pred_g = df_cy_tags.groupby(['Strat_Zone', 'Resort'])['Predicted_Final'].sum().reset_index()
-        py_full_g = df[df['Year'] == (ref_y - 1)].groupby(['Dest_Type', 'Resort'])[bv_col].sum().reset_index() # 去年全量完结
-        ppy_full_g = df[df['Year'] == (ref_y - 2)].groupby(['Dest_Type', 'Resort'])[bv_col].sum().reset_index() # 前年全量完结
+        py_full_g = df[df['Year'] == (ref_y - 1)].groupby(['Dest_Type', 'Resort'])[bv_col].sum().reset_index() 
+        ppy_full_g = df[df['Year'] == (ref_y - 2)].groupby(['Dest_Type', 'Resort'])[bv_col].sum().reset_index() 
         
-        # 标准化标签对齐
         for g_df in [py_full_g, ppy_full_g]:
             g_df['Strat_Zone'] = 'IZ'
             is_c = g_df['Dest_Type'].str.contains('China|GC', case=False) | g_df['Resort'].str.contains('Anji|Changbaishan|Guilin|Lijiang|Beidahu|Yabuli|Xianlin|Taicang', case=False)
@@ -690,7 +730,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         f_matrix = pd.merge(cy_pred_g, py_full_g[['Strat_Zone', 'Resort', bv_col]], on=['Strat_Zone', 'Resort'], how='left').rename(columns={bv_col: 'PY_Full_Final'})
         f_matrix = pd.merge(f_matrix, ppy_full_g[['Strat_Zone', 'Resort', bv_col]], on=['Strat_Zone', 'Resort'], how='left').rename(columns={bv_col: 'PPY_Full_Final'}).fillna(0)
         
-        # 转换单位为 M€ 增强高管汇报可读性
         for c_f in ['Predicted_Final', 'PY_Full_Final', 'PPY_Full_Final']:
             f_matrix[c_f] = f_matrix[c_f] / 1_000_000
             
@@ -701,44 +740,18 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         }), use_container_width=True)
 
 # =================================================================
-# 🎢 TAB 2: TRAJECTORY & VELOCITY (Req 5: 三维同期十五日折线重构)
-# =================================================================
-    with tab2:
-        st.markdown("---")
-        st.markdown("### 📈 Dashboard 5: Rolling 15-Days Sales Momentum (CY vs PY vs PPY)")
-        
-        # 抽取 CY, PY, PPY 每日发生的切片绝对增量进行多线对齐
-        cy_15 = df_cy.groupby(df_cy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
-        py_15 = df_py.groupby(df_py['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
-        ppy_15 = df_ppy.groupby(df_ppy['Sales_Date'].dt.date)[bv_col].sum().reset_index().tail(15)
-        
-        fig_trend_15 = go.Figure()
-        fig_trend_15.add_trace(go.Scatter(y=cy_15[bv_col]/1000, name=f'CY Rolling 15D', mode='lines+markers', line=dict(color='#051C2C', width=3)))
-        fig_trend_15.add_trace(go.Scatter(y=py_15[bv_col]/1000, name=f'PY 同期 15D', mode='lines', line=dict(color='#A4B6B0', width=2, dash='dash')))
-        fig_trend_15.add_trace(go.Scatter(y=ppy_15[bv_col]/1000, name=f'PPY 同期 15D', mode='lines', line=dict(color='#A64B35', width=1.5, dash='dot')))
-        fig_trend_15.update_layout(title="Rolling 15-Days Pure Daily Booking Velocity Alignment Matrix (k)", hovermode="x unified")
-        st.plotly_chart(fig_trend_15, use_container_width=True)
-
-# =================================================================
-# 📋 TAB 4: AUTOMATED WEEKLY DIAGNOSTICS (Req 6: 粗燥表格升级高管图表)
+# 📋 TAB 4: AUTOMATED WEEKLY DIAGNOSTICS
 # =================================================================
     with tab4:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>📋 Automated Weekly Executive Diagnostics</h2>", unsafe_allow_html=True)
         strat_matrix = build_strategic_summary_matrix(df_cy, df_py, bv_col)
         
-        # 将原本粗糙的 DataFrame 转换为高清晰度集团高管级图表
         st.markdown("### 📊 Tabular Visual Overlay: Strategic Port vs Zone Variance")
-        
-        # 将数据缩放到 M€
         strat_matrix['CY_M'] = strat_matrix[f'{bv_col}_CY'] / 1_000_000
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
         
-        # 分流色彩指示器
-        fig_diag_bar = px.bar(strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group',
-                              text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f} M€"),
-                              color_discrete_sequence=['#051C2C', '#1D263B', '#A64B35', '#A4B6B0'],
-                              title="Strategic Portfolio YoY Net Variance Matrix (Unit: M€)")
+        fig_diag_bar = px.bar(strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group', text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f} M€"), color_discrete_sequence=['#051C2C', '#1D263B', '#A64B35', '#A4B6B0'], title="Strategic Portfolio YoY Net Variance Matrix (Unit: M€)")
         fig_diag_bar.update_traces(textposition='outside')
         st.plotly_chart(fig_diag_bar, use_container_width=True)
         
@@ -768,7 +781,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing context & browsing trends..."):
                         search_result = get_web_search_context(prompt)
-                        # 调用更具战略视角的 AI 引擎 B
                         insights = generate_weekly_diagnostics(chart_info, df_cy.head(10).to_string(), st.session_state.messages[:-1], prompt)
                         st.info(insights)
                         st.session_state.messages.append({"role": "assistant", "content": insights})
