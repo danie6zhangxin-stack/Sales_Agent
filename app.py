@@ -263,7 +263,6 @@ def draw_weekly_pace_chart_m(df_curve, cy_label, py_label, curr_symbol, info_tex
     if df_curve is None or df_curve.empty: return go.Figure()
     df_weekly = df_curve.resample('W-MON', on='Sales_Date').sum().reset_index()
     df_weekly['Weekly_Gap_M'] = df_weekly['CY_inc_M'] - df_weekly['PY_inc_M']
-    # 【修复核心】在这里补上绝对差值的计算，供 Hover 透视使用
     df_weekly['Weekly_Gap_abs'] = df_weekly['CY_inc_abs'] - df_weekly['PY_inc_abs'] 
     
     fig = go.Figure()
@@ -371,12 +370,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         d = idf.copy()
         d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
         if mode == "Quick Select (Year/Season)":
-            d = d[d['Year'] == y]
-            if seas != "All Year":
+            if y is not None: d = d[d['Year'] == y]
+            if seas and seas != "All Year":
                 m_range = [1,6] if "S1" in seas else [7,12]
                 d = d[d['Month_Num'].between(*m_range)]
         else: 
-            d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+            if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
             
         if sel_mkt: d = d[d['Market'].isin(sel_mkt)]
         if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
@@ -605,7 +604,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.plotly_chart(fig_trend_15, use_container_width=True)
 
 # =================================================================
-# 🎯 TAB 3: STRATEGIC DECISION CANVAS
+# 🎯 TAB 3: STRATEGIC DECISION CANVAS (🌟 NEW: TRUE DYNAMIC PICKUP PREDICTION)
 # =================================================================
     with tab3:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>🎯 Advanced Decision Support Canvas</h2>", unsafe_allow_html=True)
@@ -697,35 +696,78 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_ta_rank.update_traces(textposition='outside')
             st.plotly_chart(fig_ta_rank, use_container_width=True)
 
+        # ---------------------------------------------------------------------------------
+        # 🌟 CORE ENGINE REPLACEMENT: Dynamic Pickup Forecast Matrix (Velocity Tuned)
+        # ---------------------------------------------------------------------------------
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Dynamic Baseline Forecast Matrix</h3>", unsafe_allow_html=True)
         
-        full_py_total_bv = df[df['Year'] == (ref_y - 1)][bv_col].sum()
+        # 1. Capture the latest true data cutoff
+        latest_sales_date = df['Sales_Date'].dropna().max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
+        st.info(f"**📅 Data Cutoff Date (System Latest Ledger Entry):** {latest_sales_date}")
+
+        # 2. Fetch True Final Volumes for PY and PPY (No Sales Date Filter applied to these)
+        df_py_full = apply_filters(df, cons_mode, ref_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
+        df_ppy_full = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.year-2) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
+
+        full_py_total_bv = df_py_full[bv_col].sum()
         current_py_otb_bv = df_py[bv_col].sum()
-        full_ppy_total_bv = df[df['Year'] == (ref_y - 2)][bv_col].sum()
+        
+        full_ppy_total_bv = df_ppy_full[bv_col].sum()
         current_ppy_otb_bv = df_ppy[bv_col].sum()
         
-        dynamic_pace_ratio = current_py_otb_bv / full_py_total_bv if full_py_total_bv > 0 and current_py_otb_bv > 0 else 0.78
-        ppy_pace_ratio = current_ppy_otb_bv / full_ppy_total_bv if full_ppy_total_bv > 0 and current_ppy_otb_bv > 0 else 0.75
+        # 3. Calculate Pace Ratios based strictly on OTB up to exactly equivalent cutoff date vs The True Final 
+        py_pace_ratio = current_py_otb_bv / full_py_total_bv if full_py_total_bv > 0 else 1.0
+        ppy_pace_ratio = current_ppy_otb_bv / full_ppy_total_bv if full_ppy_total_bv > 0 else 1.0
         
         st.markdown(r"""
-        $$\text{Forecast Equation: Predicted Final (CY)} = \frac{\text{Current OTB Volume (CY)}}{\text{Dynamic Pace Ratio}}$$
-        $$\text{Where Code-extracted Baseline Pace Ratio: } \text{Ratio} = \frac{\text{Historical OTB Volume at Same Sales Window}}{\text{Full Year Final Volume Realized}}$$
-        """)
-        fcol1, fcol2 = st.columns(2)
-        with fcol1: st.metric(label=f"📊 Code Extracted 2025 Pace Ratio (Applied for CY Prediction)", value=f"{dynamic_pace_ratio*100:.2f}%")
-        with fcol2: st.metric(label=f"📊 Historical Reference 2024 Pace Ratio (PPY Window Realized)", value=f"{ppy_pace_ratio*100:.2f}%")
+        <div style="background-color:#ffffff; padding:18px 22px; border-radius:8px; border:1px solid #EAECEF; border-left:5px solid #051C2C; margin-bottom:20px;">
+            <h4 style="margin-top:0; color:#051C2C; font-weight:600;">🧠 McKinsey Method: Historical Curve + Velocity Tuning Projection</h4>
+            $$ \text{1. Pace Ratio} = \frac{\text{Historical OTB up to exact Cutoff Date}}{\text{Historical Season Final Realized (100\%)}} $$
+            $$ \text{2. Baseline Forecast} = \frac{\text{Current OTB (CY)}}{\text{Selected Pace Ratio}} $$
+            $$ \text{3. Velocity Tuned Final} = \text{Current OTB} + (\text{Baseline Forecast} - \text{Current OTB}) \times \text{L15D Velocity Factor} $$
+        </div>
+        """, unsafe_allow_html=True)
         
-        df_cy_tags['Predicted_Final'] = df_cy_tags[bv_col] / dynamic_pace_ratio
+        c_pace1, c_pace2 = st.columns(2)
+        with c_pace1: 
+            st.metric(label=f"📊 PY ({ref_y-1}) Historical Pace Ratio", value=f"{py_pace_ratio*100:.2f}%", delta=f"OTB: {format_volume(current_py_otb_bv)} / Final: {format_volume(full_py_total_bv)}", delta_color="off")
+        with c_pace2: 
+            st.metric(label=f"📊 PPY ({ref_y-2}) Historical Pace Ratio", value=f"{ppy_pace_ratio*100:.2f}%", delta=f"OTB: {format_volume(current_ppy_otb_bv)} / Final: {format_volume(full_ppy_total_bv)}", delta_color="off")
+        
+        # 4. User actively selects parameter
+        sel_pace = st.radio("⚙️ Select Historical Pace Coefficient to Apply (Denominator):", [f"Apply PY ({ref_y-1}) Pace Ratio: {py_pace_ratio*100:.2f}%", f"Apply PPY ({ref_y-2}) Pace Ratio: {ppy_pace_ratio*100:.2f}%"], index=0, horizontal=True)
+        active_pace_ratio = py_pace_ratio if "PY (" in sel_pace else ppy_pace_ratio
+        
+        # 5. Extract Last 15 Days Dynamic Velocity Factor 
+        cy_15d_tot = df_cy.groupby(df_cy['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
+        if "PY (" in sel_pace:
+            ref_15d_tot = df_py.groupby(df_py['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
+        else:
+            ref_15d_tot = df_ppy.groupby(df_ppy['Sales_Date'].dt.date)[bv_col].sum().tail(15).sum()
+            
+        velocity_factor = cy_15d_tot / ref_15d_tot if ref_15d_tot > 0 else 1.0
+        
+        st.markdown(f"""
+        <div style="background-color:#FAFAFA; padding:10px 15px; border-radius:6px; margin-bottom:20px;">
+            <b>⚡ Extracted L15D Velocity Factor (CY 15D Flow vs Selected Ref 15D Flow):</b> 
+            <span style='color:#A64B35; font-weight:700; font-size:1.15rem;'>{velocity_factor:.2f}x</span> 
+            <span style='color:gray; font-size:0.85rem;'>(Used to tune the remaining unbooked gap)</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 6. Feed the rigorous model down into the Matrix Rows
+        df_cy_tags['Baseline_Final'] = df_cy_tags[bv_col] / active_pace_ratio
+        # Velocity tuning applied only to the remaining gap (Baseline - OTB)
+        df_cy_tags['Predicted_Final'] = df_cy_tags[bv_col] + (df_cy_tags['Baseline_Final'] - df_cy_tags[bv_col]) * velocity_factor
+        
         cy_pred_g = df_cy_tags.groupby(['Strat_Zone', 'Resort'])['Predicted_Final'].sum().reset_index()
         
-        df_py_full = df[df['Year'] == (ref_y - 1)].copy()
-        df_py_full = assign_strategic_tags(df_py_full)
-        py_full_g = df_py_full.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'PY_Full_Final'})
+        df_py_full_tags = assign_strategic_tags(df_py_full)
+        py_full_g = df_py_full_tags.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'PY_Full_Final'})
         
-        df_ppy_full = df[df['Year'] == (ref_y - 2)].copy()
-        df_ppy_full = assign_strategic_tags(df_ppy_full)
-        ppy_full_g = df_ppy_full.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'PPY_Full_Final'})
+        df_ppy_full_tags = assign_strategic_tags(df_ppy_full)
+        ppy_full_g = df_ppy_full_tags.groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index().rename(columns={bv_col: 'PPY_Full_Final'})
         
         f_matrix = pd.merge(cy_pred_g, py_full_g, on=['Strat_Zone', 'Resort'], how='outer').fillna(0)
         f_matrix = pd.merge(f_matrix, ppy_full_g, on=['Strat_Zone', 'Resort'], how='outer').fillna(0)
@@ -738,7 +780,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         f_matrix = f_matrix.sort_values(['Strat_Zone', 'Predicted_Final'], ascending=[True, False])
         
         html_pred = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
-        html_pred.append('<th rowspan="2" class="th-main th-dark" style="width:14%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:14%;">Resort</th><th rowspan="2" class="th-main th-cy" style="width:12%;">Predicted Final (CY)</th><th rowspan="2" class="th-main th-py" style="width:12%;">PY Full Final</th><th rowspan="2" class="th-main th-py" style="width:12%; border-right: 2px solid #ffffff;">PPY Full Final</th><th colspan="2" class="th-main th-var" style="width:18%;">Vs PY Full Realized Variance</th><th colspan="2" class="th-main th-var" style="width:18%; border-left: 2px solid #ffffff;">Vs PPY Full Realized Variance</th></tr><tr>')
+        html_pred.append('<th rowspan="2" class="th-main th-dark" style="width:14%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:14%;">Resort</th><th rowspan="2" class="th-main th-cy" style="width:12%;">Tuned Predicted Final (CY)</th><th rowspan="2" class="th-main th-py" style="width:12%;">PY Full Final Realized</th><th rowspan="2" class="th-main th-py" style="width:12%; border-right: 2px solid #ffffff;">PPY Full Final Realized</th><th colspan="2" class="th-main th-var" style="width:18%;">Vs PY Full Realized Variance</th><th colspan="2" class="th-main th-var" style="width:18%; border-left: 2px solid #ffffff;">Vs PPY Full Realized Variance</th></tr><tr>')
         html_pred.append('<th class="th-sub th-var">Abs (M€)</th><th class="th-sub th-var">Var %</th><th class="th-sub th-var" style="border-left: 2px solid #ffffff;">Abs (M€)</th><th class="th-sub th-var">Var %</th></tr></thead><tbody>')
         
         zone_counts = f_matrix['Strat_Zone'].value_counts().to_dict()
@@ -759,7 +801,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             v_ppy_a = row['Var_PPY_Abs'] / 1_000_000
             v_ppy_p = row['Var_PPY_Pct']
             
-            html_pred.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td>{p_m:.2f}M€</td><td>{py_m:.2f}M€</td><td style="border-right: 2px solid #CBD5E1 !important;">{ppy_m:.2f}M€</td>')
+            html_pred.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td><b style="color:#051C2C;">{p_m:.2f}M€</b></td><td>{py_m:.2f}M€</td><td style="border-right: 2px solid #CBD5E1 !important;">{ppy_m:.2f}M€</td>')
             html_pred.append(f'<td>{format_variance_cell(v_py_a)}</td><td>{format_variance_cell(v_py_p, is_pct=True)}</td>')
             html_pred.append(f'<td style="border-left: 2px solid #CBD5E1 !important;">{format_variance_cell(v_ppy_a)}</td><td>{format_variance_cell(v_ppy_p, is_pct=True)}</td>')
             html_pred.append('</tr>')
@@ -768,7 +810,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("".join(html_pred), unsafe_allow_html=True)
 
 # =================================================================
-# 📋 TAB 4: AUTOMATED WEEKLY DIAGNOSTICS (NEW: SUMMARY CARDS ADDED)
+# 📋 TAB 4: AUTOMATED WEEKLY DIAGNOSTICS 
 # =================================================================
     with tab4:
         st.markdown("<h2 style='color:#051C2C; font-weight:700;'>📋 Automated Weekly Executive Diagnostics</h2>", unsafe_allow_html=True)
@@ -785,7 +827,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         st.markdown("### 📊 Tabular Visual Overlay: Strategic Port vs Zone Variance")
         
-        # ✨ NEW: 4-Block Summary Specific to the Filtered Matrix (CY, PY, Diff, % Diff)
         tab4_cy_tot = df_cy[bv_col].sum()
         tab4_py_tot = df_py[bv_col].sum()
         tab4_diff = tab4_cy_tot - tab4_py_tot
@@ -826,7 +867,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             ''', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Original Chart rendering continues below the new top summary blocks
         strat_matrix['CY_M'] = strat_matrix[f'{bv_col}_CY'] / 1_000_000
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
