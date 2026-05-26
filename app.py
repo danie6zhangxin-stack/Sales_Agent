@@ -327,7 +327,6 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, 
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
-    # 📌 修正点 1: 全局 Filter 移除 Strategic Portfolio
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
@@ -558,9 +557,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         html_out.append('</tbody></table>')
         st.markdown("".join(html_out), unsafe_allow_html=True)
         
-        # ---------------------------------------------------------------------------------
-        # 📌 修正点 1 & 3: 下沉专属滤网 & 动态添加标题面板 (Market, Cons, Portfolio, Currency)
-        # ---------------------------------------------------------------------------------
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
         
         c_title, c_filt = st.columns([3, 1])
@@ -577,7 +573,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         mkt_text = ", ".join(sel_mkt) if sel_mkt else "All Markets"
         port_text = ", ".join(sel_port) if sel_port else "All Portfolios"
         
-        # Dashboard 动态信息标注面板
         st.markdown(f"""
         <div style="background-color:#F8F9FA; padding:10px 15px; border-radius:6px; border-left:4px solid #A4B6B0; margin-bottom:15px;">
             <p style="color:#051C2C; font-size:0.95rem; font-weight:600; margin-bottom:0;">
@@ -785,60 +780,50 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
-            # 📌 修正点 2: 注入麦肯锡色板 & 核心源节点色彩分化
-            mckinsey_colors = {
-                'CM China': '#051C2C',      # 深海蓝
-                'CM Hong Kong': '#A64B35',  # 赤陶土
-                'GC SUN': '#A4B6B0',        # 鼠尾草绿
-                'GC mountain': '#5C7080',   # 钢铁灰
-                'ESAP SUN': '#D0DFE7',      # 浅冰蓝
-                'ESAP mountain': '#112E43', # 海军蓝
-                'IZ': '#EAECEF'             # 浅米灰
-            }
-            # 备用色系以防出现未在字典中的节点
-            fallback_palette = ['#1E466E', '#3B5F8A', '#6C8EAD', '#4A6A3E', '#8B5A4B']
-            node_colors = [mckinsey_colors.get(n, fallback_palette[i % len(fallback_palette)]) for i, n in enumerate(nodes)]
-        
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
             link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
             
-            # 将源节点的颜色转换为 rgba 用于连线 (继承源颜色，0.45透明度)
-            def hex_to_rgba(h, a=0.45):
-                h = h.lstrip('#')
-                if len(h) != 6: return f"rgba(100,100,150,{a})"
-                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
-            link_colors = [hex_to_rgba(node_colors[src]) for src in sources]
-        
+            # 📌 完全采纳您的 Sankey 代码设定，仅添加了动态边界自适应以防数组越界崩溃
+            color_palette = px.colors.qualitative.Set3  
+            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
+            
+            # 安全处理 x, y 坐标长度与节点数量一致（防崩溃设定）
+            default_x = [0.1, 0.4, 0.6, 0.8, 0.9]
+            default_y = [0.2, 0.5, 0.3, 0.7, 0.4]
+            node_x = (default_x * (len(nodes) // len(default_x) + 1))[:len(nodes)]
+            node_y = (default_y * (len(nodes) // len(default_y) + 1))[:len(nodes)]
+
             fig_sankey = go.Figure(data=[go.Sankey(
-                arrangement="snap",
+                arrangement="snap",  # 自动调整节点布局
                 node=dict(
-                    pad=30,
-                    thickness=25,
+                    pad=30,          # 节点内边距
+                    thickness=25,    # 节点宽度
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
-                    color=node_colors
+                    color=node_colors,
+                    x=node_x,  # 手动指定 x 位置（安全适配动态节点数）
+                    y=node_y   # 手动指定 y 位置（安全适配动态节点数）
                 ),
                 link=dict(
                     source=sources,
                     target=targets,
                     value=values,
-                    color=link_colors,
+                    color="rgba(100, 100, 150, 0.4)",  # 统一浅色连线
                     customdata=link_texts,
                     hovertemplate='%{source.label} → %{target.label}<br><b>%{customdata}</b><extra></extra>'
                 )
             )])
             fig_sankey.update_layout(
                 height=650,
-                font=dict(size=12, family="Inter", color="#000000"), # 📌 字体全黑
+                font=dict(size=12, family="Inter"),
                 margin=dict(l=20, r=20, t=40, b=20),
                 title_text="Source Market → Strategic Zone Flow (M€)",
-                title_font=dict(size=16, color="#051C2C"),
-                plot_bgcolor='#F9F9F9',
-                paper_bgcolor='#F9F9F9'
+                title_font=dict(size=16, color="#051C2C")
             )
             st.plotly_chart(fig_sankey, use_container_width=True)
+            
         else:
             st.info("No corridor records matched for China/HK markers.")
 
