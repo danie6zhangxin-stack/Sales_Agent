@@ -18,6 +18,16 @@ CSS_STYLE = """
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap');
     :root { --cm-blue: #051C2C; --cm-terracotta: #A64B35; --cm-sage: #A4B6B0; --cm-beige: #F8F9FA; }
     .main { background-color: #FAFAFA; font-family: 'Inter', sans-serif; }
+
+    /* 强制重置 Plotly 图表中所有文字的阴影和填充 */
+    .js-plotly-plot .plotly .main-svg text {
+        text-shadow: none !important;
+        fill: #000000 !important;
+    }
+    .js-plotly-plot .plotly .sankey-node text {
+        fill: #000000 !important;
+        font-weight: 600 !important;
+    }
     
     .header-box {
         background-color: var(--cm-blue);
