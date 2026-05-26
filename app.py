@@ -780,31 +780,23 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
+            # ==== 📌 桑基图回退到上一彩色版版本 ====
+            color_palette = px.colors.qualitative.Set3  
+            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
+            
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
             link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
             
-            # 📌 完全采纳您的 Sankey 代码设定，仅添加了动态边界自适应以防数组越界崩溃
-            color_palette = px.colors.qualitative.Set3  
-            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
-            
-            # 安全处理 x, y 坐标长度与节点数量一致（防崩溃设定）
-            default_x = [0.1, 0.4, 0.6, 0.8, 0.9]
-            default_y = [0.2, 0.5, 0.3, 0.7, 0.4]
-            node_x = (default_x * (len(nodes) // len(default_x) + 1))[:len(nodes)]
-            node_y = (default_y * (len(nodes) // len(default_y) + 1))[:len(nodes)]
-
             fig_sankey = go.Figure(data=[go.Sankey(
                 arrangement="snap",  # 自动调整节点布局
                 node=dict(
-                    pad=30,          # 节点内边距
-                    thickness=25,    # 节点宽度
+                    pad=30,          
+                    thickness=25,    
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
-                    color=node_colors,
-                    x=node_x,  # 手动指定 x 位置（安全适配动态节点数）
-                    y=node_y   # 手动指定 y 位置（安全适配动态节点数）
+                    color=node_colors
                 ),
                 link=dict(
                     source=sources,
@@ -815,14 +807,20 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     hovertemplate='%{source.label} → %{target.label}<br><b>%{customdata}</b><extra></extra>'
                 )
             )])
+            
             fig_sankey.update_layout(
                 height=650,
-                font=dict(size=12, family="Inter"),
+                # 📌 强制锁定纯黑色字体
+                font=dict(size=12, family="Inter", color="black"),
                 margin=dict(l=20, r=20, t=40, b=20),
                 title_text="Source Market → Strategic Zone Flow (M€)",
-                title_font=dict(size=16, color="#051C2C")
+                title_font=dict(size=16, color="#051C2C"),
+                plot_bgcolor='#F9F9F9',
+                paper_bgcolor='#F9F9F9'
             )
-            st.plotly_chart(fig_sankey, use_container_width=True)
+            
+            # 📌 加入 theme=None: 彻底阻断 Streamlit 对文字强加的灰色半透明底板/阴影特性，还原本色的极简黑字！
+            st.plotly_chart(fig_sankey, use_container_width=True, theme=None)
             
         else:
             st.info("No corridor records matched for China/HK markers.")
