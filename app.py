@@ -196,7 +196,6 @@ def sanitize_channels(df_mat):
 
 def assign_strategic_tags(idf):
     d = idf.copy()
-    # 📌 Req 4: 全局切换 Strat_Port 为全英文结构
     d['Strat_Port'] = 'EC w/o Ctrip'
     d.loc[d['reChannel'].str.lower() == 'ctrip', 'Strat_Port'] = 'Ctrip'
     d.loc[d['Segment'].str.upper() == 'MICE', 'Strat_Port'] = 'MICE'
@@ -238,23 +237,31 @@ def draw_pacing_curve_m(df_curve, cy_label, py_label, curr_symbol, info_text):
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_M'].clip(lower=0), fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.25)', name='Ahead (+)', customdata=df_curve['Gap_abs'], hovertemplate='<b>Ahead (+):</b> %{customdata:,.0f} €<extra></extra>'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_M'].clip(upper=0), fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.25)', name='Behind (-)', customdata=df_curve['Gap_abs'], hovertemplate='<b>Behind (-):</b> %{customdata:,.0f} €<extra></extra>'), row=2, col=1)
     
-    # 📌 Req 1: 恢复自动检测并标注 Gap 最大与最小点对应的 CY 与 PY 值
-    max_idx = df_curve['Gap_M'].idxmax()
-    min_idx = df_curve['Gap_M'].idxmin()
-    
-    fig.add_annotation(
-        x=df_curve.loc[max_idx, 'Sales_Date'], y=df_curve.loc[max_idx, 'CY_M'],
-        text=f"🔥 Max Gap<br>{cy_label}: {df_curve.loc[max_idx, 'CY_M']:.2f}M€<br>{py_label}: {df_curve.loc[max_idx, 'PY_M']:.2f}M€",
-        showarrow=True, arrowhead=2, row=1, col=1, ax=-40, ay=-50,
-        bgcolor="rgba(255,255,255,0.9)", bordercolor="#28a745", borderwidth=1, font=dict(color="#000000", size=11)
-    )
-    
-    fig.add_annotation(
-        x=df_curve.loc[min_idx, 'Sales_Date'], y=df_curve.loc[min_idx, 'CY_M'],
-        text=f"❄️ Min Gap<br>{cy_label}: {df_curve.loc[min_idx, 'CY_M']:.2f}M€<br>{py_label}: {df_curve.loc[min_idx, 'PY_M']:.2f}M€",
-        showarrow=True, arrowhead=2, row=1, col=1, ax=40, ay=50,
-        bgcolor="rgba(255,255,255,0.9)", bordercolor="#dc3545", borderwidth=1, font=dict(color="#000000", size=11)
-    )
+    # 📌 修正点 1: Gap Max & Min 取绝对值，但显示实际差值，红色(负)/绿色(正)动态响应
+    df_curve['Abs_Gap'] = df_curve['Gap_M'].abs()
+    if not df_curve['Abs_Gap'].isna().all():
+        max_idx = df_curve['Abs_Gap'].idxmax()
+        min_idx = df_curve['Abs_Gap'].idxmin()
+        
+        max_gap = df_curve.loc[max_idx, 'Gap_M']
+        min_gap = df_curve.loc[min_idx, 'Gap_M']
+        
+        max_color = "#28a745" if max_gap >= 0 else "#dc3545"
+        min_color = "#28a745" if min_gap >= 0 else "#dc3545"
+        
+        fig.add_annotation(
+            x=df_curve.loc[max_idx, 'Sales_Date'], y=df_curve.loc[max_idx, 'CY_M'],
+            text=f"🔥 Max Absolute Gap<br>Gap: <b><span style='color:{max_color}'>{max_gap:+.2f} M€</span></b><br>{cy_label}: {df_curve.loc[max_idx, 'CY_M']:.2f}M€<br>{py_label}: {df_curve.loc[max_idx, 'PY_M']:.2f}M€",
+            showarrow=True, arrowhead=2, row=1, col=1, ax=0, ay=-60 if df_curve.loc[max_idx, 'CY_M'] > df_curve.loc[max_idx, 'PY_M'] else 60,
+            bgcolor="rgba(255,255,255,0.95)", bordercolor=max_color, borderwidth=2, font=dict(color="#051C2C", size=11)
+        )
+        
+        fig.add_annotation(
+            x=df_curve.loc[min_idx, 'Sales_Date'], y=df_curve.loc[min_idx, 'CY_M'],
+            text=f"❄️ Min Absolute Gap<br>Gap: <b><span style='color:{min_color}'>{min_gap:+.2f} M€</span></b><br>{cy_label}: {df_curve.loc[min_idx, 'CY_M']:.2f}M€<br>{py_label}: {df_curve.loc[min_idx, 'PY_M']:.2f}M€",
+            showarrow=True, arrowhead=2, row=1, col=1, ax=0, ay=-60 if df_curve.loc[min_idx, 'CY_M'] > df_curve.loc[min_idx, 'PY_M'] else 60,
+            bgcolor="rgba(255,255,255,0.95)", bordercolor=min_color, borderwidth=2, font=dict(color="#051C2C", size=11)
+        )
     
     fig.update_yaxes(ticksuffix="M", tickformat=".1f", row=1, col=1)
     fig.update_yaxes(ticksuffix="M", tickformat=".1f", row=2, col=1)
@@ -286,22 +293,24 @@ except:
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
 def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
-    # 📌 Req 5: 严谨梳理目的地映射逻辑（ESAP mountain=日本滑雪, ESAP Sun=东南亚海岛/马代等），注入实际的分销组合弹性策略约束，剔除任何冗余的信头格式。
+    # 📌 修正点 4: 修复地理指代错误，加强边界定义，剔除多余的抬头输出
     sys_prompt = f"""You are the Elite Strategic Revenue Director for ClubMed. 
     Data Scope Environment: {context_info}
     
     🚨 RIGOROUS REGIONAL DEFINITIONS & GEOGRAPHIC ACCURACY (CRITICAL MAPPING CHECK):
+    - GC mountain: Refers EXCLUSIVELY to China domestic ski resorts (e.g., Changbaishan, Beidahu, Yabuli). NEVER the European Alps.
+    - IZ (Interzone): Long-haul destinations. This INCLUDES European Alps ski (e.g., Grand Massif, Val Thorens, etc.), Canada ski, and Long-haul sun destinations (e.g., Mauritius, Seychelles). NEVER Southeast Asia or Maldives.
     - ESAP mountain: Refers EXCLUSIVELY to Japan Ski products (Sahoro, Tomamu, Kiroro, etc.).
-    - ESAP SUN: Covers Southeast Asia beach & tropical sun destinations including the Maldives (Kani, Finolhu, Phuket, Cherating, Bali, Kota Kinabalu, Kabira/Ishigaki, etc.).
-    - ABSOLUTE FORBIDDEN MISTAKES: Never mislabel GC as Southeast Asia. Never map IZ to Maldives or Mauritius interchangeably if they fall under ESAP SUN in this scope. Never call GC Mountain Phuket or Bali. Review the context table coordinates meticulously.
+    - ESAP SUN: Covers Southeast Asia beach & tropical sun destinations INCLUDING the Maldives (Kani, Finolhu), Phuket, Bali, Cherating, etc.
+    - ABSOLUTE FORBIDDEN MISTAKES: Do NOT confuse GC mountain with the Alps. Do NOT confuse IZ with SE Asia. You will be penalized if you make these fundamental errors.
     
     🚨 MACRO RADAR & GEOPOLITICAL INTELLIGENCE:
     1. Sino-Japanese Relations: Cooling trends restrict proactive official promotion of Japan travel products, adding direct headwinds to ESAP Mountain performance.
     2. Long-Haul Logistics: Geopolitical spikes in the Middle East elevate fuel surcharges, filtering demand out of traditional IZ corridors.
     
     💰 DISTRIBUTION PORTFOLIO MATRIX & REALISTIC STRATEGIC PRAGMATISM:
-    - Channel Portfolios: EC w/o Ctrip (Direct Brand Web/App: ~6-7% cost), Douyin (~8%), Ctrip (10-12% drag), TA (Traditional Wholesalers: 10-11%).
-    - CRITICAL BUSINESS REALISM CONSTRAINT: Do NOT recommend unfeasible measures like "forcing Ctrip to drop commission under 8% or cutting off inventory distribution". In a revenue contraction or volatile recovery window, higher-margin direct channels are preferred, but volume placement via aggregate OTA platforms remains vital. High-commission realized volume is exponentially better than zero-occupancy empty rooms. Focus on smart margin balancing and tactical inventory gating instead.
+    - Channel Portfolios: EC w/o Ctrip, Ctrip, MICE, TA.
+    - CRITICAL BUSINESS REALISM CONSTRAINT: Do NOT recommend unfeasible measures like "forcing Ctrip to drop commission under 8% or cutting off inventory distribution". In a revenue contraction or volatile recovery window, higher-margin direct channels are preferred, but volume placement via aggregate OTA platforms remains absolutely vital. High-commission realized volume is exponentially better than zero-occupancy empty rooms. Focus on smart margin balancing, product bundling, and tactical inventory gating instead.
     
     🚨 FORMAT CONSTRAINT:
     Start directly with the core analysis paragraphs and actionable bullet points. Do NOT output metadata like "致：...", "发件人：...", "主题：...", or "日期：...".
@@ -633,7 +642,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         lt_cy_total = lt_m[f'{bv_col}_CY'].sum()
         lt_py_total = lt_m[f'{bv_col}_PY'].sum()
         
-        # 📌 Req 2: 剔除柱状图数据标签内部的 M€ 符号
         lt_m['Label_CY'] = [f"<b>{v/1_000_000:.2f}</b><br>({(v/lt_cy_total*100):.1f}%)" if lt_cy_total > 0 else "0" for v in lt_m[f'{bv_col}_CY']]
         lt_m['Label_PY'] = [f"<b>{v/1_000_000:.2f}</b><br>({(v/lt_py_total*100):.1f}%)" if lt_py_total > 0 else "0" for v in lt_m[f'{bv_col}_PY']]
         
@@ -654,7 +662,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         mix_m['Var_Abs'] = mix_m[f'{bv_col}_CY'] - mix_m[f'{bv_col}_PY']
         mix_m['Var_Pct'] = np.where(mix_m[f'{bv_col}_PY'] > 0, mix_m['Var_Abs'] / mix_m[f'{bv_col}_PY'] * 100, 0)
         
-        # 📌 Req 2: 剔除 Product Mix 柱状图标签内部的 M€ 符号
         mix_m['Label_Text'] = [f"<b>{c/1e6:.1f}</b><br><span style='color:{'#28a745' if p>=0 else '#dc3545'};'>{p:+.1f}%</span>" for c, p in zip(mix_m[f'{bv_col}_CY'], mix_m['Var_Pct'])]
         
         fig_mix = go.Figure()
@@ -688,17 +695,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
-            # ===== 📌 Req 3: 麦肯锡风格专属客制化高独立色彩矩阵（China 与 HK 完全独立，流向各具基座色彩的战区）=====
-            color_palette_map = {
-                'CM China': '#1E466E',        # 专属深海蓝底座
-                'CM Hong Kong': '#A64B35',     # 专属红土棕底座
-                'GC SUN': '#6C8EAD',           # 浅蓝灰基座
-                'GC mountain': '#4A6A3E',      # 墨绿基座
-                'ESAP SUN': '#7A8E5E',         # 橄榄绿基座
-                'ESAP mountain': '#8B5A4B',    # 陶土红基座
-                'IZ': '#5D6B7A'                # 铁石灰基座
-            }
-            colors_node = [color_palette_map.get(n, '#A27C6B') for n in nodes]
+            # 📌 修正点 2: 完全回退到之前版本的麦肯锡自动分配色系
+            mckinsey_colors = [
+                '#1E466E', '#3B5F8A', '#6C8EAD', '#4A6A3E', '#7A8E5E', 
+                '#8B5A4B', '#A27C6B', '#5D6B7A', '#B5927A', '#495D6B'
+            ]
+            colors_node = (mckinsey_colors * ((len(nodes) // len(mckinsey_colors)) + 1))[:len(nodes)]
         
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
@@ -731,7 +733,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             )])
             fig_sankey.update_layout(
                 height=700,
-                # 📌 Req 1 (历史遗留细节修复): 文字统一设置为高清晰全黑 (#000000)
                 font=dict(size=12, color="#000000", family="Inter"),
                 margin=dict(l=40, r=40, t=60, b=40),
                 title=dict(
@@ -858,7 +859,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         f_matrix = f_matrix.sort_values(['Strat_Zone', 'Predicted_Final'], ascending=[True, False])
         
-        # 📌 Req 6: 彻底净化动态标题，踢掉 Destination 及 Currency 冗余结构
         dashboard_title_info = f"Market: {mkt_txt} | Cons: {cons_desc}"
         st.markdown(f"<h4 style='color:#051C2C; margin-top:30px; font-weight:700;'>🏢 Resort-Level Tuned Forecast Dashboard ({dashboard_title_info}) - Unit: M€</h4>", unsafe_allow_html=True)
         
@@ -960,27 +960,81 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             ''', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # 📌 修正点 3: 新增交互式 Resort-Level Performance by Strategic Portfolio 的 Dashboard
+        st.markdown("<h3 style='color:#051C2C; font-weight:600; margin-top:10px;'>Resort-Level Performance by Strategic Portfolio</h3>", unsafe_allow_html=True)
+        available_ports = sorted(df_cy_tags['Strat_Port'].unique())
+        sel_ports = st.multiselect("Filter by Strategic Portfolio", available_ports, default=available_ports)
+        
+        t4_cy_f = df_cy_tags[df_cy_tags['Strat_Port'].isin(sel_ports)].groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index()
+        t4_py_f = df_py_tags[df_py_tags['Strat_Port'].isin(sel_ports)].groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index()
+        t4_m = pd.merge(t4_cy_f, t4_py_f, on=['Strat_Zone', 'Resort'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
+        t4_m['Var_Abs'] = t4_m[f'{bv_col}_CY'] - t4_m[f'{bv_col}_PY']
+        t4_m['Var_Pct'] = np.where(t4_m[f'{bv_col}_PY'] > 0, t4_m['Var_Abs'] / t4_m[f'{bv_col}_PY'], 0)
+        t4_m = t4_m.sort_values(['Strat_Zone', f'{bv_col}_CY'], ascending=[True, False])
+        
+        html_t4 = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
+        html_t4.append('<th rowspan="2" class="th-main th-dark" style="width:20%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:20%;">Resort / Pool</th><th rowspan="2" class="th-main th-cy" style="width:15%;">Current Period (CY)</th><th rowspan="2" class="th-main th-py" style="width:15%; border-right: 2px solid #ffffff;">Previous Period (PY)</th><th colspan="2" class="th-main th-var" style="width:30%;">YoY Variance</th></tr><tr>')
+        html_t4.append('<th class="th-sub th-var">Abs</th><th class="th-sub th-var">Var %</th></tr></thead><tbody>')
+        
+        for zone in t4_m['Strat_Zone'].unique():
+            z_df = t4_m[t4_m['Strat_Zone'] == zone]
+            zone_rowspan = len(z_df)
+            first = True
+            for _, row in z_df.iterrows():
+                html_t4.append('<tr>')
+                if first:
+                    html_t4.append(f'<td rowspan="{zone_rowspan}" class="cell-merged" style="border-right: 2px solid #051C2C !important;">{zone}</td>')
+                    first = False
+                
+                c_m = row[f'{bv_col}_CY'] / 1_000_000
+                p_m = row[f'{bv_col}_PY'] / 1_000_000
+                v_a = row['Var_Abs'] / 1_000_000
+                v_p = row['Var_Pct']
+                
+                html_t4.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td><b style="color:#051C2C;">{c_m:.2f}</b></td><td style="border-right: 2px solid #CBD5E1 !important;">{p_m:.2f}</td>')
+                html_t4.append(f'<td>{format_variance_cell(v_a)}</td><td>{format_variance_cell(v_p, is_pct=True)}</td></tr>')
+        
+        html_t4.append('</tbody></table>')
+        st.markdown("".join(html_t4), unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        
         strat_matrix['CY_M'] = strat_matrix[f'{bv_col}_CY'] / 1_000_000
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
         
-        # 📌 Req 4: 剔除数据标签的 M€ 符号，完全清除坐标、图例轴带有下划线不专业的脏变量名称
-        fig_diag_bar = px.bar(
-            strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group', 
-            text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f}"), 
-            color_discrete_sequence=['#051C2C', '#1D263B', '#A64B35', '#A4B6B0'], 
-            title="Strategic Portfolio YoY Net Variance Matrix"
-        )
-        fig_diag_bar.update_traces(textposition='outside')
-        fig_diag_bar.update_layout(
-            xaxis_title="Strategic Zone",
-            yaxis_title="Variance (M€)",
-            legend_title="Strategic Portfolio",
+        # 📌 修正点 5: 在 Variance 矩阵图中加入双轴混合图 (Bar + Line)
+        fig_diag = make_subplots(specs=[[{"secondary_y": True}]])
+        colors_tab4 = ['#051C2C', '#1D263B', '#A64B35', '#A4B6B0']
+        zones = strat_matrix['Strat_Zone'].unique()
+        
+        for i, port in enumerate(strat_matrix['Strat_Port'].unique()):
+            p_df = strat_matrix[strat_matrix['Strat_Port'] == port].set_index('Strat_Zone').reindex(zones).reset_index().fillna(0)
+            c = colors_tab4[i % len(colors_tab4)]
+            
+            # Absolute Variance (Bar)
+            fig_diag.add_trace(go.Bar(
+                x=p_df['Strat_Zone'], y=p_df['Variance_M'], 
+                name=f"{port} (Abs)", marker_color=c, offsetgroup=i
+            ), secondary_y=False)
+            
+            # Percentage Growth (Line)
+            fig_diag.add_trace(go.Scatter(
+                x=p_df['Strat_Zone'], y=p_df['Var_Pct'], 
+                name=f"{port} (%)", mode='lines+markers', 
+                line=dict(color=c, dash='dot', width=2), marker=dict(symbol='diamond', size=8)
+            ), secondary_y=True)
+            
+        fig_diag.update_layout(
+            title="Strategic Portfolio YoY Net Variance Matrix (Absolute & %)",
+            barmode='group',
             hovermode="x unified",
             plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
+            paper_bgcolor='rgba(0,0,0,0)',
+            legend=dict(orientation="h", y=-0.2, x=0.5, xanchor='center')
         )
-        st.plotly_chart(fig_diag_bar, use_container_width=True)
+        fig_diag.update_yaxes(title_text="Variance Absolute (M€)", secondary_y=False)
+        fig_diag.update_yaxes(title_text="Variance Growth (%)", ticksuffix="%", secondary_y=True)
+        st.plotly_chart(fig_diag, use_container_width=True)
         
         if st.button("🚀 Trigger McKinsey Lean Executive Weekly Diagnostic Report"):
             with st.spinner("AI 正在结合硬性渠道成本结构与宏观政经地缘变局破局中..."):
