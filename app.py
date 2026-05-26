@@ -19,6 +19,12 @@ CSS_STYLE = """
     :root { --cm-blue: #051C2C; --cm-terracotta: #A64B35; --cm-sage: #A4B6B0; --cm-beige: #F8F9FA; }
     .main { background-color: #FAFAFA; font-family: 'Inter', sans-serif; }
     
+    /* 强制 Plotly Sankey 字体全黑并移除白色描边阴影 */
+    .sankey-node-text, .sankey text {
+        fill: #000000 !important;
+        text-shadow: none !important;
+    }
+    
     .header-box {
         background-color: var(--cm-blue);
         color: white;
@@ -667,7 +673,19 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
             
             # 📌 Req 2: High-end elegant color palette
-            colors_node = ['#8BA3C9', '#B596C5', '#88D6C9', '#4F7DA3', '#F4A28B', '#F1D17A', '#A2A9AF']
+            mckinsey_colors = [
+                '#1E466E',  # 深蓝
+                '#3B5F8A',  # 中蓝
+                '#6C8EAD',  # 浅蓝灰
+                '#4A6A3E',  # 深绿
+                '#7A8E5E',  # 橄榄绿
+                '#8B5A4B',  # 红棕
+                '#A27C6B',  # 暖灰
+                '#5D6B7A',  # 钢蓝灰
+                '#B5927A',  # 陶土色
+                '#495D6B',  # 深海
+            ]
+            colors_node = (mckinsey_colors * ((len(nodes) // len(mckinsey_colors)) + 1))[:len(nodes)]
             
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
@@ -675,20 +693,44 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             
             # Match link colors to target node colors but with transparency
             color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
-            link_colors = [color_map[t].replace('#', 'rgba(') for t in sk_grp['Strat_Zone']]
-            # Convert hex to rgba manually for link pastel effect
-            def hex_to_rgba(h, a=0.3):
+            def hex_to_rgba(h, a=0.5):
                 h = h.lstrip('#')
                 return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
-            link_colors = [hex_to_rgba(color_map[t], 0.35) for t in sk_grp['Strat_Zone']]
+            link_colors = [hex_to_rgba(color_map[t], 0.5) for t in sk_grp['Strat_Zone']]
             
             link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
             
             fig_sankey = go.Figure(data=[go.Sankey(
-                node=dict(pad=30, thickness=40, line=dict(color="white", width=0.5), label=node_display_labels, color=colors_node),
-                link=dict(source=sources, target=targets, value=values, color=link_colors, customdata=link_texts, hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>')
+                arrangement="snap",
+                textfont=dict(color="#000000", size=12), # 强制使用纯黑字体
+                node=dict(
+                    pad=40,
+                    thickness=30,
+                    line=dict(color="#000000", width=0.5), # 黑色节点描边
+                    label=node_display_labels,
+                    color=colors_node,
+                ),
+                link=dict(
+                    source=sources, 
+                    target=targets, 
+                    value=values, 
+                    color=link_colors, 
+                    customdata=link_texts, 
+                    hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>'
+                )
             )])
-            fig_sankey.update_layout(height=650, font_size=15, font_family="Inter")
+            fig_sankey.update_layout(
+                height=700, 
+                font=dict(size=12, color="#000000", family="Inter"),
+                margin=dict(l=40, r=40, t=60, b=40),
+                title=dict(
+                    text="Source Market → Strategic Zone Flow (M€, % of total)",
+                    font=dict(size=16, color="#051C2C", family="Playfair Display"),
+                    x=0.5
+                ),
+                plot_bgcolor='#F9F9F9',
+                paper_bgcolor='#F9F9F9'
+            )
             st.plotly_chart(fig_sankey, use_container_width=True)
         else:
             st.info("No corridor records matched for China/HK markers.")
@@ -729,27 +771,19 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Dynamic Baseline Forecast Matrix</h3>", unsafe_allow_html=True)
         
-        # 📌 Req 4 (第一): LaTeX 公式彻底美化
-        st.markdown(r"""
-        <div style="background-color:#F8F9FA; padding:25px 30px; border-radius:10px; border:1px solid #EAECEF; border-left:6px solid #051C2C; margin-bottom:25px; box-shadow: 0 4px 15px rgba(0,0,0,0.03);">
-            <h4 style="margin-top:0; margin-bottom: 20px; color:#051C2C; font-weight:700;">🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection</h4>
-            <div style="margin-bottom: 15px;">
-                <b style="color:#333; font-size:1.05rem;">1. Historical Pace Ratio (HPR):</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Measures historical booking velocity to define our baseline denominator.</span>
-                $$ \text{Pace Ratio} = \frac{\text{Historical OTB up to Exact Cutoff Date}}{\text{Historical Season Final Realized (100\%)}} $$
-            </div>
-            <div style="margin-bottom: 15px;">
-                <b style="color:#333; font-size:1.05rem;">2. Velocity Tuning Factor (L15D):</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Tracks recent 15-day momentum relative to historical speed. (Multiplier > 1 implies acceleration).</span>
-                $$ \text{Velocity Factor} = \frac{\text{CY Last 15 Days Intake Flow}}{\text{PY Last 15 Days Intake Flow}} $$
-            </div>
-            <div>
-                <b style="color:#333; font-size:1.05rem;">3. Tuned Predicted Final:</b><br/>
-                <span style="color:gray; font-size:0.9rem;">Applies the momentum adjustment only to the remaining unbooked gap.</span>
-                $$ \text{Tuned Forecast} = \text{Current OTB} + \left( \frac{\text{Current OTB}}{\text{Pace Ratio}} - \text{Current OTB} \right) \times \text{Velocity Factor} $$
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # 📌 Req 4 (第一): Forecast Matrix 说明文字替换
+        st.markdown("""
+### 🧠 McKinsey Methodology: Historical Curve + Velocity Tuning Projection
+
+**1. Historical Pace Ratio (HPR)** Measures historical booking velocity to define our baseline denominator.  
+> `Pace Ratio = Historical OTB up to Exact Cutoff Date / Historical Season Final Realized (100%)`
+
+**2. Velocity Tuning Factor (L15D)** Tracks recent 15-day momentum relative to historical speed. (Multiplier > 1 implies acceleration).  
+> `Velocity Factor = CY Last 15 Days Intake Flow / PY Last 15 Days Intake Flow`
+
+**3. Tuned Predicted Final** Applies the momentum adjustment only to the remaining unbooked gap.  
+> `Tuned Forecast = Current OTB + [(Current OTB / Pace Ratio) - Current OTB] × Velocity Factor`
+""")
         
         latest_sales_date = df['Sales_Date'].dropna().max().date() if not df['Sales_Date'].dropna().empty else datetime.date.today()
         st.info(f"**📅 System Data Cutoff Date:** {latest_sales_date}")
