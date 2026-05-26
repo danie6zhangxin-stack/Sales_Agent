@@ -797,6 +797,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
                     color=node_colors
+                    # 强制设定文本颜色为黑色，移除任何阴影或背景效果
+                    hoverlabel=dict(bgcolor="white", font=dict(color="black")),
                 ),
                 link=dict(
                     source=sources,
@@ -811,12 +813,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             fig_sankey.update_layout(
                 height=650,
                 # 📌 强制锁定纯黑色字体
-                font=dict(size=12, family="Inter", color="black"),
+                font=dict(size=13, family="Inter", color="black"),
                 margin=dict(l=20, r=20, t=40, b=20),
                 title_text="Source Market → Strategic Zone Flow (M€)",
                 title_font=dict(size=16, color="#051C2C"),
-                plot_bgcolor='#F9F9F9',
-                paper_bgcolor='#F9F9F9'
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
             )
             
             # 📌 加入 theme=None: 彻底阻断 Streamlit 对文字强加的灰色半透明底板/阴影特性，还原本色的极简黑字！
