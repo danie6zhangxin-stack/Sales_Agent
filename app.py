@@ -796,7 +796,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     thickness=25,    
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
-                    color=node_colors，
+                    color=node_colors,
                     # 强制设定文本颜色为黑色，移除任何阴影或背景效果
                     hoverlabel=dict(bgcolor="white", font=dict(color="black")),
                 ),
