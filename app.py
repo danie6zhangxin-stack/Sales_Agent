@@ -327,13 +327,11 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, 
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
+    # 📌 修正点 1: 全局 Filter 移除 Strategic Portfolio
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
-    # 📌 修正点 2: 将 Strategic Portfolio 置于 Global Filter，但通过动态检测锁定其作用域，且只向 Resort Level 模块透传。
-    tcol1, tcol2, tcol3 = st.columns(3)
-    tcol4, tcol5, tcol6 = st.columns(3)
-    
+    tcol1, tcol2, tcol3, tcol4, tcol5 = st.columns(5)
     with tcol1:
         bv_sel = st.selectbox("Currency", ["Euro (€)", "Locale (Original)"])
         bv_col = "BV_Euro" if "Euro" in bv_sel else "BV_Locale"
@@ -342,14 +340,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with tcol3: sel_dest = st.multiselect("Dest. Type", sorted(df['Dest_Type'].unique()))
     with tcol4: sel_resort = st.multiselect("Resort", sorted(df['Resort'].unique()))
     with tcol5: sel_ta = st.multiselect("Travel Agency", sorted(df['TA_Group'].unique()))
-    with tcol6: 
-        all_ports = ['EC w/o Ctrip', 'Ctrip', 'MICE', 'TA']
-        # 仅当市场包含 China（或者空搜全量时）激活该切片器，规避跨模块污染。
-        is_china = any('CHINA' in m.upper() for m in sel_mkt) if sel_mkt else True
-        if is_china:
-            sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=all_ports)
-        else:
-            sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=[], disabled=True, help="Only active when China market is selected.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.sidebar:
@@ -435,7 +425,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
-    port_txt = ", ".join(sel_port) if len(sel_port) < 4 else "All Portfolios"
     chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🎯 Strategic Decision Canvas", "📋 Automated Weekly Diagnostics", "🤖 Strategic AI Advisor"])
@@ -570,21 +559,44 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("".join(html_out), unsafe_allow_html=True)
         
         # ---------------------------------------------------------------------------------
-        # 📌 修正点 2: Resort-Level Performance Table (位于 Tab 1 底部)
-        # 通过动态隔离技术，仅接收来自 Global Filter 的 sel_port 参数进行计算。
+        # 📌 修正点 1 & 3: 下沉专属滤网 & 动态添加标题面板 (Market, Cons, Portfolio, Currency)
         # ---------------------------------------------------------------------------------
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
-        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏔️ Resort-Level Performance</h3>", unsafe_allow_html=True)
-        st.markdown(f"<p style='color:#6C757D; font-size: 0.9rem; margin-bottom:15px;'>* Note: IZ (Interzone) resorts are consolidated into a single macro line item for high-level visibility.</p>", unsafe_allow_html=True)
+        
+        c_title, c_filt = st.columns([3, 1])
+        with c_title:
+            st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏔️ Resort-Level Performance</h3>", unsafe_allow_html=True)
+        with c_filt:
+            all_ports = ['EC w/o Ctrip', 'Ctrip', 'MICE', 'TA']
+            is_china = any('CHINA' in m.upper() for m in sel_mkt) if sel_mkt else True
+            if is_china:
+                sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=[], placeholder="Choose options...")
+            else:
+                sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=[], disabled=True)
+
+        mkt_text = ", ".join(sel_mkt) if sel_mkt else "All Markets"
+        port_text = ", ".join(sel_port) if sel_port else "All Portfolios"
+        
+        # Dashboard 动态信息标注面板
+        st.markdown(f"""
+        <div style="background-color:#F8F9FA; padding:10px 15px; border-radius:6px; border-left:4px solid #A4B6B0; margin-bottom:15px;">
+            <p style="color:#051C2C; font-size:0.95rem; font-weight:600; margin-bottom:0;">
+                <span style="color:#6C757D;">Market:</span> {mkt_text} &nbsp;|&nbsp; 
+                <span style="color:#6C757D;">Consumption:</span> {cons_desc} &nbsp;|&nbsp; 
+                <span style="color:#6C757D;">Strategic Portfolio:</span> {port_text} &nbsp;|&nbsp; 
+                <span style="color:#6C757D;">Currency:</span> {bv_sel}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"<p style='color:#6C757D; font-size: 0.85rem; margin-bottom:15px; font-style:italic;'>* Note: IZ (Interzone) resorts are consolidated into a single macro line item for high-level visibility.</p>", unsafe_allow_html=True)
 
         t1_cy = df_cy_tags.copy()
         t1_py = df_py_tags.copy()
 
-        # ======== 核心防崩溃隔离墙：独立切片应用 ========
-        if sel_port and is_china:
+        if sel_port:
             t1_cy = t1_cy[t1_cy['Strat_Port'].isin(sel_port)]
             t1_py = t1_py[t1_py['Strat_Port'].isin(sel_port)]
-        # ============================================
 
         t1_cy.loc[t1_cy['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
         t1_py.loc[t1_py['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
@@ -773,14 +785,31 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
-            # 📌 修正点 1: 引入高对比度调色板及透明连线
-            color_palette = px.colors.qualitative.Set3
-            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
+            # 📌 修正点 2: 注入麦肯锡色板 & 核心源节点色彩分化
+            mckinsey_colors = {
+                'CM China': '#051C2C',      # 深海蓝
+                'CM Hong Kong': '#A64B35',  # 赤陶土
+                'GC SUN': '#A4B6B0',        # 鼠尾草绿
+                'GC mountain': '#5C7080',   # 钢铁灰
+                'ESAP SUN': '#D0DFE7',      # 浅冰蓝
+                'ESAP mountain': '#112E43', # 海军蓝
+                'IZ': '#EAECEF'             # 浅米灰
+            }
+            # 备用色系以防出现未在字典中的节点
+            fallback_palette = ['#1E466E', '#3B5F8A', '#6C8EAD', '#4A6A3E', '#8B5A4B']
+            node_colors = [mckinsey_colors.get(n, fallback_palette[i % len(fallback_palette)]) for i, n in enumerate(nodes)]
         
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
             link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
+            
+            # 将源节点的颜色转换为 rgba 用于连线 (继承源颜色，0.45透明度)
+            def hex_to_rgba(h, a=0.45):
+                h = h.lstrip('#')
+                if len(h) != 6: return f"rgba(100,100,150,{a})"
+                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
+            link_colors = [hex_to_rgba(node_colors[src]) for src in sources]
         
             fig_sankey = go.Figure(data=[go.Sankey(
                 arrangement="snap",
@@ -795,14 +824,14 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     source=sources,
                     target=targets,
                     value=values,
-                    color="rgba(100, 100, 150, 0.4)",
+                    color=link_colors,
                     customdata=link_texts,
                     hovertemplate='%{source.label} → %{target.label}<br><b>%{customdata}</b><extra></extra>'
                 )
             )])
             fig_sankey.update_layout(
                 height=650,
-                font=dict(size=12, family="Inter"),
+                font=dict(size=12, family="Inter", color="#000000"), # 📌 字体全黑
                 margin=dict(l=20, r=20, t=40, b=20),
                 title_text="Source Market → Strategic Zone Flow (M€)",
                 title_font=dict(size=16, color="#051C2C"),
@@ -1030,7 +1059,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
         
-        # 📌 修正点 4: 退回纯净绝对值柱状图设计
         fig_diag_bar = px.bar(
             strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group', 
             text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f}"), 
