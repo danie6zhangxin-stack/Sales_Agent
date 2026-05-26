@@ -215,10 +215,8 @@ def assign_strategic_tags(idf):
     return d
 
 def build_strategic_summary_matrix(cy_df, py_df, bv_col):
-    cy_s = assign_strategic_tags(cy_df)
-    py_s = assign_strategic_tags(py_df)
-    cy_g = cy_s.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
-    py_g = py_s.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
+    cy_g = cy_df.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
+    py_g = py_df.groupby(['Strat_Port', 'Strat_Zone'])[bv_col].sum().reset_index()
     merged = pd.merge(cy_g, py_g, on=['Strat_Port', 'Strat_Zone'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
     merged['Variance'] = merged[f'{bv_col}_CY'] - merged[f'{bv_col}_PY']
     merged['Var_Pct'] = np.where(merged[f'{bv_col}_PY'] > 0, merged['Variance'] / merged[f'{bv_col}_PY'] * 100, 0)
@@ -237,7 +235,6 @@ def draw_pacing_curve_m(df_curve, cy_label, py_label, curr_symbol, info_text):
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_M'].clip(lower=0), fill='tozeroy', line=dict(color='rgba(0,128,0,0)'), fillcolor='rgba(40,167,69,0.25)', name='Ahead (+)', customdata=df_curve['Gap_abs'], hovertemplate='<b>Ahead (+):</b> %{customdata:,.0f} €<extra></extra>'), row=2, col=1)
     fig.add_trace(go.Scatter(x=df_curve['Sales_Date'], y=df_curve['Gap_M'].clip(upper=0), fill='tozeroy', line=dict(color='rgba(255,0,0,0)'), fillcolor='rgba(220,53,69,0.25)', name='Behind (-)', customdata=df_curve['Gap_abs'], hovertemplate='<b>Behind (-):</b> %{customdata:,.0f} €<extra></extra>'), row=2, col=1)
     
-    # 📌 修正点 1: Gap Max & Min 取绝对值，但显示实际差值，红色(负)/绿色(正)动态响应
     df_curve['Abs_Gap'] = df_curve['Gap_M'].abs()
     if not df_curve['Abs_Gap'].isna().all():
         max_idx = df_curve['Abs_Gap'].idxmax()
@@ -293,7 +290,6 @@ except:
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
 def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
-    # 📌 修正点 4: 修复地理指代错误，加强边界定义，剔除多余的抬头输出
     sys_prompt = f"""You are the Elite Strategic Revenue Director for ClubMed. 
     Data Scope Environment: {context_info}
     
@@ -334,7 +330,10 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
-    tcol1, tcol2, tcol3, tcol4, tcol5 = st.columns(5)
+    # 📌 修正点 2: 将 Strategic Portfolio 上升为全局联动 Filter
+    tcol1, tcol2, tcol3 = st.columns(3)
+    tcol4, tcol5, tcol6 = st.columns(3)
+    
     with tcol1:
         bv_sel = st.selectbox("Currency", ["Euro (€)", "Locale (Original)"])
         bv_col = "BV_Euro" if "Euro" in bv_sel else "BV_Locale"
@@ -343,6 +342,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with tcol3: sel_dest = st.multiselect("Dest. Type", sorted(df['Dest_Type'].unique()))
     with tcol4: sel_resort = st.multiselect("Resort", sorted(df['Resort'].unique()))
     with tcol5: sel_ta = st.multiselect("Travel Agency", sorted(df['TA_Group'].unique()))
+    with tcol6: 
+        all_ports = ['EC w/o Ctrip', 'Ctrip', 'MICE', 'TA']
+        sel_port = st.multiselect("Strategic Portfolio", all_ports, default=all_ports)
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.sidebar:
@@ -415,20 +417,27 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         if sel_resort: d = d[d['Resort'].isin(sel_resort)]
         return d
 
-    df_cy = apply_filters(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
-    df_py = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
+    df_cy_raw = apply_filters(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
+    df_py_raw = apply_filters(df, cons_mode, sel_y-1 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-1) if c_start else None, c_end.replace(year=c_end.year-1) if c_end else None, py_start, py_end)
     
     ref_y = sel_y if cons_mode.startswith("Quick") else c_start.year
-    df_ppy = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.replace(year=c_end.year-2)) if c_end else None, start_date.replace(year=start_date.year-2), end_date.replace(year=end_date.year-2))
+    df_ppy_raw = apply_filters(df, cons_mode, ref_y-2 if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-2) if c_start else None, c_end.replace(year=c_end.replace(year=c_end.year-2)) if c_end else None, start_date.replace(year=start_date.year-2), end_date.replace(year=end_date.year-2))
 
-    df_cy_tags = assign_strategic_tags(sanitize_channels(df_cy[~df_cy['Segment'].str.lower().str.contains('mission', na=False)]))
-    df_py_tags = assign_strategic_tags(sanitize_channels(df_py[~df_py['Segment'].str.lower().str.contains('mission', na=False)]))
-    df_ppy_tags = assign_strategic_tags(sanitize_channels(df_ppy[~df_ppy['Segment'].str.lower().str.contains('mission', na=False)]))
+    df_cy_tags = assign_strategic_tags(sanitize_channels(df_cy_raw[~df_cy_raw['Segment'].str.lower().str.contains('mission', na=False)]))
+    df_py_tags = assign_strategic_tags(sanitize_channels(df_py_raw[~df_py_raw['Segment'].str.lower().str.contains('mission', na=False)]))
+    df_ppy_tags = assign_strategic_tags(sanitize_channels(df_ppy_raw[~df_ppy_raw['Segment'].str.lower().str.contains('mission', na=False)]))
+
+    # 📌 全局应用 Strategic Portfolio Filter
+    if sel_port:
+        df_cy_tags = df_cy_tags[df_cy_tags['Strat_Port'].isin(sel_port)]
+        df_py_tags = df_py_tags[df_py_tags['Strat_Port'].isin(sel_port)]
+        df_ppy_tags = df_ppy_tags[df_ppy_tags['Strat_Port'].isin(sel_port)]
 
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
-    chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
+    port_txt = ", ".join(sel_port) if len(sel_port) < 4 else "All Portfolios"
+    chart_info = f"Market: {mkt_txt} | Portfolio: {port_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🎯 Strategic Decision Canvas", "📋 Automated Weekly Diagnostics", "🤖 Strategic AI Advisor"])
 
@@ -560,6 +569,67 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         html_out.append('</tbody></table>')
         st.markdown("".join(html_out), unsafe_allow_html=True)
+        
+        # ---------------------------------------------------------------------------------
+        # 📌 修正点 2: 转移并重构 Resort-Level Performance Table (位于 Tab 1 底部)
+        # ---------------------------------------------------------------------------------
+        st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
+        st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏔️ Resort-Level Performance</h3>", unsafe_allow_html=True)
+        st.markdown(f"<p style='color:#6C757D; font-size: 0.9rem; margin-bottom:15px;'>* Note: IZ (Interzone) resorts are consolidated into a single macro line item for high-level visibility.</p>", unsafe_allow_html=True)
+
+        t1_cy = df_cy_tags.copy()
+        t1_py = df_py_tags.copy()
+        t1_cy.loc[t1_cy['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
+        t1_py.loc[t1_py['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
+
+        grp_cy = t1_cy.groupby(['Strat_Zone', 'Resort']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
+        grp_py = t1_py.groupby(['Strat_Zone', 'Resort']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
+
+        t1_m = pd.merge(grp_cy, grp_py, on=['Strat_Zone', 'Resort'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
+
+        html_t1 = ['<table class="mckinsey-table"><thead><tr>']
+        html_t1.append('<th rowspan="2" class="th-main th-dark" style="width:14%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:16%;">Resort / Pool</th><th colspan="3" class="th-main th-cy">Current Period (CY)</th><th colspan="3" class="th-main th-py" style="border-left: 2px solid #ffffff;">Previous Period (PY)</th><th colspan="3" class="th-main th-var" style="border-left: 2px solid #ffffff;">YoY Variance %</th></tr><tr>')
+        html_t1.append('<th class="th-sub th-cy">BV</th><th class="th-sub th-cy">HN</th><th class="th-sub th-cy th-divider">ADR</th><th class="th-sub th-py">BV</th><th class="th-sub th-py">HN</th><th class="th-sub th-py th-divider">ADR</th><th class="th-sub th-var">BV %</th><th class="th-sub th-var">HN %</th><th class="th-sub th-var">ADR %</th></tr></thead><tbody>')
+
+        grand_cy_b, grand_cy_h, grand_py_b, grand_py_h = 0, 0, 0, 0
+        sorted_zones = sorted(t1_m['Strat_Zone'].unique())
+        
+        for zone in sorted_zones:
+            z_df = t1_m[t1_m['Strat_Zone'] == zone].sort_values(f'{bv_col}_CY', ascending=False)
+            
+            sub_cy_b, sub_cy_h = z_df[f'{bv_col}_CY'].sum(), z_df['HN_CY'].sum()
+            sub_py_b, sub_py_h = z_df[f'{bv_col}_PY'].sum(), z_df['HN_PY'].sum()
+            grand_cy_b += sub_cy_b; grand_cy_h += sub_cy_h
+            grand_py_b += sub_py_b; grand_py_h += sub_py_h
+            
+            is_iz = (zone == 'IZ')
+            rowspan = 1 if is_iz else len(z_df) + 1 
+            first = True
+            
+            for _, row in z_df.iterrows():
+                html_t1.append('<tr>')
+                if first:
+                    html_t1.append(f'<td rowspan="{rowspan}" class="cell-merged" style="border-right: 2px solid #051C2C !important;">{zone}</td>')
+                    first = False
+                
+                cb, chn = row[f'{bv_col}_CY'], row['HN_CY']
+                pb, phn = row[f'{bv_col}_PY'], row['HN_PY']
+                ca = cb/chn if chn>0 else 0
+                pa = pb/phn if phn>0 else 0
+                
+                html_t1.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td>{fmt_val(cb)}</td><td>{fmt_val(chn)}</td><td class="td-divider">{fmt_val(ca)}</td><td>{fmt_val(pb)}</td><td>{fmt_val(phn)}</td><td class="td-divider">{fmt_val(pa)}</td><td>{fmt_val((cb-pb)/pb if pb>0 else 0, True)}</td><td>{fmt_val((chn-phn)/phn if phn>0 else 0, True)}</td><td>{fmt_val((ca-pa)/pa if pa>0 else 0, True)}</td></tr>')
+            
+            if not is_iz:
+                sub_ca = sub_cy_b / sub_cy_h if sub_cy_h > 0 else 0
+                sub_pa = sub_py_b / sub_py_h if sub_py_h > 0 else 0
+                html_t1.append(f'<tr class="subtotal-row"><td class="cell-detail-left" style="font-weight:600;">{zone} Subtotal</td><td>{fmt_val(sub_cy_b)}</td><td>{fmt_val(sub_cy_h)}</td><td class="td-divider">{fmt_val(sub_ca)}</td><td>{fmt_val(sub_py_b)}</td><td>{fmt_val(sub_py_h)}</td><td class="td-divider">{fmt_val(sub_pa)}</td><td>{fmt_val((sub_cy_b-sub_py_b)/sub_py_b if sub_py_b>0 else 0, True)}</td><td>{fmt_val((sub_cy_h-sub_py_h)/sub_py_h if sub_py_h>0 else 0, True)}</td><td>{fmt_val((sub_ca-sub_pa)/sub_pa if sub_pa>0 else 0, True)}</td></tr>')
+
+        gt_ca = grand_cy_b / grand_cy_h if grand_cy_h > 0 else 0
+        gt_pa = grand_py_b / grand_py_h if grand_py_h > 0 else 0
+        html_t1.append(f'<tr class="grand-total-row" style="background-color:#E2ECF1 !important;"><td colspan="2" class="cell-detail-left" style="font-weight:800; color:#A64B35 !important;">GLOBAL RESORT TOTAL</td><td>{fmt_val(grand_cy_b)}</td><td>{fmt_val(grand_cy_h)}</td><td class="td-divider">{fmt_val(gt_ca)}</td><td>{fmt_val(grand_py_b)}</td><td>{fmt_val(grand_py_h)}</td><td class="td-divider">{fmt_val(gt_pa)}</td><td>{fmt_val((grand_cy_b-grand_py_b)/grand_py_b if grand_py_b>0 else 0, True)}</td><td>{fmt_val((grand_cy_h-grand_py_h)/grand_py_h if grand_py_h>0 else 0, True)}</td><td>{fmt_val((gt_ca-gt_pa)/gt_pa if gt_pa>0 else 0, True)}</td></tr>')
+        
+        html_t1.append('</tbody></table>')
+        st.markdown("".join(html_t1), unsafe_allow_html=True)
 
     # =================================================================
     # 🎢 TAB 2: TRAJECTORY & VELOCITY
@@ -568,11 +638,17 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         def get_curve_m(idf, cy_y, mode, seas, cs, ce, se):
             d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
             d_py = apply_filters(idf, mode, cy_y-1, seas, cs.replace(year=cs.year-1) if cs else None, ce.replace(year=ce.replace(year=ce.year-1)) if ce else None, datetime.date(2000,1,1), se-datetime.timedelta(days=365))
+            if sel_port: 
+                d_cy = assign_strategic_tags(sanitize_channels(d_cy))
+                d_py = assign_strategic_tags(sanitize_channels(d_py))
+                d_cy = d_cy[d_cy['Strat_Port'].isin(sel_port)]
+                d_py = d_py[d_py['Strat_Port'].isin(sel_port)]
+                
             c_d = d_cy.groupby('Sales_Date')[bv_col].sum().reset_index()
             p_d = d_py.groupby('Sales_Date')[bv_col].sum().reset_index()
             p_d['Sales_Date'] = p_d['Sales_Date'] + pd.DateOffset(years=1)
             if c_d.empty and p_d.empty: return None
-            tline = pd.date_range(start=min(c_d['Sales_Date'].min(), p_d['Sales_Date'].min()), end=pd.to_datetime(se))
+            tline = pd.date_range(start=min(c_d['Sales_Date'].min() if not c_d.empty else pd.to_datetime(se), p_d['Sales_Date'].min() if not p_d.empty else pd.to_datetime(se)), end=pd.to_datetime(se))
             df_t = pd.DataFrame({'Sales_Date': tline})
             c_d = pd.merge(df_t, c_d, on='Sales_Date', how='left').fillna(0)
             p_d = pd.merge(df_t, p_d, on='Sales_Date', how='left').fillna(0)
@@ -676,6 +752,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
         df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
+        if sel_port: df_cy_sankey_tags = df_cy_sankey_tags[df_cy_sankey_tags['Strat_Port'].isin(sel_port)]
         
         sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
         
@@ -695,51 +772,41 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
-            # 📌 修正点 2: 完全回退到之前版本的麦肯锡自动分配色系
-            mckinsey_colors = [
-                '#1E466E', '#3B5F8A', '#6C8EAD', '#4A6A3E', '#7A8E5E', 
-                '#8B5A4B', '#A27C6B', '#5D6B7A', '#B5927A', '#495D6B'
-            ]
-            colors_node = (mckinsey_colors * ((len(nodes) // len(mckinsey_colors)) + 1))[:len(nodes)]
+            # 📌 修正点 1: 应用指定的 Set3 动态分配颜色与统一下沉连线色彩
+            color_palette = px.colors.qualitative.Set3
+            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
         
             sources = [node_map[s] for s in sk_grp['Src_Node']]
             targets = [node_map[t] for t in sk_grp['Strat_Zone']]
             values = sk_grp[bv_col].round(0).tolist()
-        
-            color_map = {n: colors_node[i] for i, n in enumerate(nodes)}
-            def hex_to_rgba(h, a=0.5):
-                h = h.lstrip('#')
-                return f"rgba({int(h[0:2], 16)}, {int(h[2:4], 16)}, {int(h[4:6], 16)}, {a})"
-            link_colors = [hex_to_rgba(color_map[t], 0.5) for t in sk_grp['Strat_Zone']]
             link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
         
             fig_sankey = go.Figure(data=[go.Sankey(
                 arrangement="snap",
                 node=dict(
-                    pad=40,
-                    thickness=30,
+                    pad=30,
+                    thickness=25,
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
-                    color=colors_node,
+                    color=node_colors
+                    # Note: Omitted explicit x and y properties to prevent Plotly errors, 
+                    # as dynamic node counts (Src_Node + Strat_Zone) fluctuate based on filters and rarely equal exactly 5.
                 ),
                 link=dict(
                     source=sources,
                     target=targets,
                     value=values,
-                    color=link_colors,
+                    color="rgba(100, 100, 150, 0.4)",
                     customdata=link_texts,
-                    hovertemplate='Source: %{source.label}<br>Target Node: %{target.label}<br><b>%{customdata}</b><extra></extra>'
+                    hovertemplate='%{source.label} → %{target.label}<br><b>%{customdata}</b><extra></extra>'
                 )
             )])
             fig_sankey.update_layout(
-                height=700,
-                font=dict(size=12, color="#000000", family="Inter"),
-                margin=dict(l=40, r=40, t=60, b=40),
-                title=dict(
-                    text="Source Market → Strategic Zone Flow (M€, % of total)",
-                    font=dict(size=16, color="#051C2C", family="Playfair Display"),
-                    x=0.5
-                ),
+                height=650,
+                font=dict(size=12, family="Inter"),
+                margin=dict(l=20, r=20, t=40, b=20),
+                title_text="Source Market → Strategic Zone Flow (M€)",
+                title_font=dict(size=16, color="#051C2C"),
                 plot_bgcolor='#F9F9F9',
                 paper_bgcolor='#F9F9F9'
             )
@@ -807,6 +874,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         df_ref_full = apply_filters(df, cons_mode, ref_y_val if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-(sel_y-ref_y_val)) if c_start else None, c_end.replace(year=c_end.year-(sel_y-ref_y_val)) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
         df_ref_full_tags = assign_strategic_tags(sanitize_channels(df_ref_full[~df_ref_full['Segment'].str.lower().str.contains('mission', na=False)]))
+        if sel_port: df_ref_full_tags = df_ref_full_tags[df_ref_full_tags['Strat_Port'].isin(sel_port)]
 
         full_ref_total_bv = df_ref_full_tags[bv_col].sum()
         current_ref_otb_bv = df_ref_tags[bv_col].sum()
@@ -859,7 +927,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         f_matrix = f_matrix.sort_values(['Strat_Zone', 'Predicted_Final'], ascending=[True, False])
         
-        dashboard_title_info = f"Market: {mkt_txt} | Cons: {cons_desc}"
+        dashboard_title_info = f"Market: {mkt_txt} | Portfolio: {port_txt} | Cons: {cons_desc}"
         st.markdown(f"<h4 style='color:#051C2C; margin-top:30px; font-weight:700;'>🏢 Resort-Level Tuned Forecast Dashboard ({dashboard_title_info}) - Unit: M€</h4>", unsafe_allow_html=True)
         
         html_pred = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
@@ -960,81 +1028,27 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             ''', unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # 📌 修正点 3: 新增交互式 Resort-Level Performance by Strategic Portfolio 的 Dashboard
-        st.markdown("<h3 style='color:#051C2C; font-weight:600; margin-top:10px;'>Resort-Level Performance by Strategic Portfolio</h3>", unsafe_allow_html=True)
-        available_ports = sorted(df_cy_tags['Strat_Port'].unique())
-        sel_ports = st.multiselect("Filter by Strategic Portfolio", available_ports, default=available_ports)
-        
-        t4_cy_f = df_cy_tags[df_cy_tags['Strat_Port'].isin(sel_ports)].groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index()
-        t4_py_f = df_py_tags[df_py_tags['Strat_Port'].isin(sel_ports)].groupby(['Strat_Zone', 'Resort'])[bv_col].sum().reset_index()
-        t4_m = pd.merge(t4_cy_f, t4_py_f, on=['Strat_Zone', 'Resort'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
-        t4_m['Var_Abs'] = t4_m[f'{bv_col}_CY'] - t4_m[f'{bv_col}_PY']
-        t4_m['Var_Pct'] = np.where(t4_m[f'{bv_col}_PY'] > 0, t4_m['Var_Abs'] / t4_m[f'{bv_col}_PY'], 0)
-        t4_m = t4_m.sort_values(['Strat_Zone', f'{bv_col}_CY'], ascending=[True, False])
-        
-        html_t4 = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
-        html_t4.append('<th rowspan="2" class="th-main th-dark" style="width:20%;">Strategic Zone</th><th rowspan="2" class="th-main th-dark" style="width:20%;">Resort / Pool</th><th rowspan="2" class="th-main th-cy" style="width:15%;">Current Period (CY)</th><th rowspan="2" class="th-main th-py" style="width:15%; border-right: 2px solid #ffffff;">Previous Period (PY)</th><th colspan="2" class="th-main th-var" style="width:30%;">YoY Variance</th></tr><tr>')
-        html_t4.append('<th class="th-sub th-var">Abs</th><th class="th-sub th-var">Var %</th></tr></thead><tbody>')
-        
-        for zone in t4_m['Strat_Zone'].unique():
-            z_df = t4_m[t4_m['Strat_Zone'] == zone]
-            zone_rowspan = len(z_df)
-            first = True
-            for _, row in z_df.iterrows():
-                html_t4.append('<tr>')
-                if first:
-                    html_t4.append(f'<td rowspan="{zone_rowspan}" class="cell-merged" style="border-right: 2px solid #051C2C !important;">{zone}</td>')
-                    first = False
-                
-                c_m = row[f'{bv_col}_CY'] / 1_000_000
-                p_m = row[f'{bv_col}_PY'] / 1_000_000
-                v_a = row['Var_Abs'] / 1_000_000
-                v_p = row['Var_Pct']
-                
-                html_t4.append(f'<td class="cell-detail-left">{row["Resort"]}</td><td><b style="color:#051C2C;">{c_m:.2f}</b></td><td style="border-right: 2px solid #CBD5E1 !important;">{p_m:.2f}</td>')
-                html_t4.append(f'<td>{format_variance_cell(v_a)}</td><td>{format_variance_cell(v_p, is_pct=True)}</td></tr>')
-        
-        html_t4.append('</tbody></table>')
-        st.markdown("".join(html_t4), unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        
         strat_matrix['CY_M'] = strat_matrix[f'{bv_col}_CY'] / 1_000_000
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
         
-        # 📌 修正点 5: 在 Variance 矩阵图中加入双轴混合图 (Bar + Line)
-        fig_diag = make_subplots(specs=[[{"secondary_y": True}]])
-        colors_tab4 = ['#051C2C', '#1D263B', '#A64B35', '#A4B6B0']
-        zones = strat_matrix['Strat_Zone'].unique()
-        
-        for i, port in enumerate(strat_matrix['Strat_Port'].unique()):
-            p_df = strat_matrix[strat_matrix['Strat_Port'] == port].set_index('Strat_Zone').reindex(zones).reset_index().fillna(0)
-            c = colors_tab4[i % len(colors_tab4)]
-            
-            # Absolute Variance (Bar)
-            fig_diag.add_trace(go.Bar(
-                x=p_df['Strat_Zone'], y=p_df['Variance_M'], 
-                name=f"{port} (Abs)", marker_color=c, offsetgroup=i
-            ), secondary_y=False)
-            
-            # Percentage Growth (Line)
-            fig_diag.add_trace(go.Scatter(
-                x=p_df['Strat_Zone'], y=p_df['Var_Pct'], 
-                name=f"{port} (%)", mode='lines+markers', 
-                line=dict(color=c, dash='dot', width=2), marker=dict(symbol='diamond', size=8)
-            ), secondary_y=True)
-            
-        fig_diag.update_layout(
-            title="Strategic Portfolio YoY Net Variance Matrix (Absolute & %)",
-            barmode='group',
+        # 📌 修正点 3 & 4: 剔除了此处的细分表及折线图，恢复纯净版直观堆积/簇状柱状图
+        fig_diag_bar = px.bar(
+            strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group', 
+            text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f}"), 
+            color_discrete_sequence=['#051C2C', '#1D263B', '#A64B35', '#A4B6B0'], 
+            title="Strategic Portfolio YoY Net Variance Matrix"
+        )
+        fig_diag_bar.update_traces(textposition='outside')
+        fig_diag_bar.update_layout(
+            xaxis_title="Strategic Zone",
+            yaxis_title="Variance (M€)",
+            legend_title="Strategic Portfolio",
             hovermode="x unified",
             plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
-            legend=dict(orientation="h", y=-0.2, x=0.5, xanchor='center')
+            paper_bgcolor='rgba(0,0,0,0)'
         )
-        fig_diag.update_yaxes(title_text="Variance Absolute (M€)", secondary_y=False)
-        fig_diag.update_yaxes(title_text="Variance Growth (%)", ticksuffix="%", secondary_y=True)
-        st.plotly_chart(fig_diag, use_container_width=True)
+        st.plotly_chart(fig_diag_bar, use_container_width=True)
         
         if st.button("🚀 Trigger McKinsey Lean Executive Weekly Diagnostic Report"):
             with st.spinner("AI 正在结合硬性渠道成本结构与宏观政经地缘变局破局中..."):
