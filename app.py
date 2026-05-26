@@ -330,7 +330,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     st.markdown("<div class='filter-container'>", unsafe_allow_html=True)
     st.markdown("<h4 style='margin-top:0; color: #A64B35; font-size: 1.1rem; font-weight: 600;'>🌍 Global Parameter Controls</h4>", unsafe_allow_html=True)
     
-    # 📌 修正点 2: 将 Strategic Portfolio 上升为全局联动 Filter
+    # 📌 修正点 2: 将 Strategic Portfolio 置于 Global Filter，但通过动态检测锁定其作用域，且只向 Resort Level 模块透传。
     tcol1, tcol2, tcol3 = st.columns(3)
     tcol4, tcol5, tcol6 = st.columns(3)
     
@@ -344,7 +344,12 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     with tcol5: sel_ta = st.multiselect("Travel Agency", sorted(df['TA_Group'].unique()))
     with tcol6: 
         all_ports = ['EC w/o Ctrip', 'Ctrip', 'MICE', 'TA']
-        sel_port = st.multiselect("Strategic Portfolio", all_ports, default=all_ports)
+        # 仅当市场包含 China（或者空搜全量时）激活该切片器，规避跨模块污染。
+        is_china = any('CHINA' in m.upper() for m in sel_mkt) if sel_mkt else True
+        if is_china:
+            sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=all_ports)
+        else:
+            sel_port = st.multiselect("Strat Port (Resort Tbl)", all_ports, default=[], disabled=True, help="Only active when China market is selected.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     with st.sidebar:
@@ -427,17 +432,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_py_tags = assign_strategic_tags(sanitize_channels(df_py_raw[~df_py_raw['Segment'].str.lower().str.contains('mission', na=False)]))
     df_ppy_tags = assign_strategic_tags(sanitize_channels(df_ppy_raw[~df_ppy_raw['Segment'].str.lower().str.contains('mission', na=False)]))
 
-    # 📌 全局应用 Strategic Portfolio Filter
-    if sel_port:
-        df_cy_tags = df_cy_tags[df_cy_tags['Strat_Port'].isin(sel_port)]
-        df_py_tags = df_py_tags[df_py_tags['Strat_Port'].isin(sel_port)]
-        df_ppy_tags = df_ppy_tags[df_ppy_tags['Strat_Port'].isin(sel_port)]
-
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
     dest_txt = ", ".join(sel_dest) if sel_dest else "All Destinations"
     port_txt = ", ".join(sel_port) if len(sel_port) < 4 else "All Portfolios"
-    chart_info = f"Market: {mkt_txt} | Portfolio: {port_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
+    chart_info = f"Market: {mkt_txt} | Destination: {dest_txt} | Currency: {bv_sel.split(' ')[0]} | Cons: {cons_desc}"
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Executive Dashboard", "🎢 Trajectory & Velocity", "🎯 Strategic Decision Canvas", "📋 Automated Weekly Diagnostics", "🤖 Strategic AI Advisor"])
 
@@ -571,7 +570,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("".join(html_out), unsafe_allow_html=True)
         
         # ---------------------------------------------------------------------------------
-        # 📌 修正点 2: 转移并重构 Resort-Level Performance Table (位于 Tab 1 底部)
+        # 📌 修正点 2: Resort-Level Performance Table (位于 Tab 1 底部)
+        # 通过动态隔离技术，仅接收来自 Global Filter 的 sel_port 参数进行计算。
         # ---------------------------------------------------------------------------------
         st.markdown("<hr style='margin: 30px 0; border-top: 2px solid #EAECEF;'/>", unsafe_allow_html=True)
         st.markdown(f"<h3 style='font-weight: 700; color: #051C2C; margin-bottom: 5px;'>🏔️ Resort-Level Performance</h3>", unsafe_allow_html=True)
@@ -579,6 +579,13 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         t1_cy = df_cy_tags.copy()
         t1_py = df_py_tags.copy()
+
+        # ======== 核心防崩溃隔离墙：独立切片应用 ========
+        if sel_port and is_china:
+            t1_cy = t1_cy[t1_cy['Strat_Port'].isin(sel_port)]
+            t1_py = t1_py[t1_py['Strat_Port'].isin(sel_port)]
+        # ============================================
+
         t1_cy.loc[t1_cy['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
         t1_py.loc[t1_py['Strat_Zone'] == 'IZ', 'Resort'] = 'INTERZONE CONSOLIDATED'
 
@@ -638,12 +645,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         def get_curve_m(idf, cy_y, mode, seas, cs, ce, se):
             d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
             d_py = apply_filters(idf, mode, cy_y-1, seas, cs.replace(year=cs.year-1) if cs else None, ce.replace(year=ce.replace(year=ce.year-1)) if ce else None, datetime.date(2000,1,1), se-datetime.timedelta(days=365))
-            if sel_port: 
-                d_cy = assign_strategic_tags(sanitize_channels(d_cy))
-                d_py = assign_strategic_tags(sanitize_channels(d_py))
-                d_cy = d_cy[d_cy['Strat_Port'].isin(sel_port)]
-                d_py = d_py[d_py['Strat_Port'].isin(sel_port)]
-                
+            
             c_d = d_cy.groupby('Sales_Date')[bv_col].sum().reset_index()
             p_d = d_py.groupby('Sales_Date')[bv_col].sum().reset_index()
             p_d['Sales_Date'] = p_d['Sales_Date'] + pd.DateOffset(years=1)
@@ -752,7 +754,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         df_cy_sankey_base = apply_filters_no_mkt(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
         df_cy_sankey_tags = assign_strategic_tags(sanitize_channels(df_cy_sankey_base[~df_cy_sankey_base['Segment'].str.lower().str.contains('mission', na=False)]))
-        if sel_port: df_cy_sankey_tags = df_cy_sankey_tags[df_cy_sankey_tags['Strat_Port'].isin(sel_port)]
         
         sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
         
@@ -772,7 +773,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             node_map = {name: i for i, name in enumerate(nodes)}
             node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
         
-            # 📌 修正点 1: 应用指定的 Set3 动态分配颜色与统一下沉连线色彩
+            # 📌 修正点 1: 引入高对比度调色板及透明连线
             color_palette = px.colors.qualitative.Set3
             node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
         
@@ -789,8 +790,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     line=dict(color="white", width=0.5),
                     label=node_display_labels,
                     color=node_colors
-                    # Note: Omitted explicit x and y properties to prevent Plotly errors, 
-                    # as dynamic node counts (Src_Node + Strat_Zone) fluctuate based on filters and rarely equal exactly 5.
                 ),
                 link=dict(
                     source=sources,
@@ -874,7 +873,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
 
         df_ref_full = apply_filters(df, cons_mode, ref_y_val if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start.replace(year=c_start.year-(sel_y-ref_y_val)) if c_start else None, c_end.replace(year=c_end.year-(sel_y-ref_y_val)) if c_end else None, datetime.date(2000, 1, 1), datetime.date(2099, 12, 31))
         df_ref_full_tags = assign_strategic_tags(sanitize_channels(df_ref_full[~df_ref_full['Segment'].str.lower().str.contains('mission', na=False)]))
-        if sel_port: df_ref_full_tags = df_ref_full_tags[df_ref_full_tags['Strat_Port'].isin(sel_port)]
 
         full_ref_total_bv = df_ref_full_tags[bv_col].sum()
         current_ref_otb_bv = df_ref_tags[bv_col].sum()
@@ -927,7 +925,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         f_matrix = f_matrix.sort_values(['Strat_Zone', 'Predicted_Final'], ascending=[True, False])
         
-        dashboard_title_info = f"Market: {mkt_txt} | Portfolio: {port_txt} | Cons: {cons_desc}"
+        dashboard_title_info = f"Market: {mkt_txt} | Cons: {cons_desc}"
         st.markdown(f"<h4 style='color:#051C2C; margin-top:30px; font-weight:700;'>🏢 Resort-Level Tuned Forecast Dashboard ({dashboard_title_info}) - Unit: M€</h4>", unsafe_allow_html=True)
         
         html_pred = [CSS_STYLE, '<table class="mckinsey-table"><thead><tr>']
@@ -1032,7 +1030,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         strat_matrix['PY_M'] = strat_matrix[f'{bv_col}_PY'] / 1_000_000
         strat_matrix['Variance_M'] = strat_matrix['Variance'] / 1_000_000
         
-        # 📌 修正点 3 & 4: 剔除了此处的细分表及折线图，恢复纯净版直观堆积/簇状柱状图
+        # 📌 修正点 4: 退回纯净绝对值柱状图设计
         fig_diag_bar = px.bar(
             strat_matrix, x='Strat_Zone', y='Variance_M', color='Strat_Port', barmode='group', 
             text=strat_matrix['Variance_M'].apply(lambda x: f"{x:+.2f}"), 
