@@ -320,37 +320,52 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, 
     sys_prompt = f"""You are the Elite Strategic Revenue Director for ClubMed. 
     Data Scope Environment: {context_info}
     
-    🚨 RIGOROUS REGIONAL DEFINITIONS & GEOGRAPHIC ACCURACY (CRITICAL MAPPING CHECK):
+    [Data Processing Rules - 绝对不可违反的纪律]
+    1. 宏观基调判定：首先提取大盘总金额（Total BV）的 YoY Variance。如果整体为负数，你的分析基调必须是“预警、防守、修复”；如果为正数，基调为“扩张、乘胜追击”。
+    2. MICE 剥离与阈值原则：只有当 MICE 的波动满足 (绝对值差额 > 0.5M€) 或 (YoY 变化率 > 100%) 时，才允许将其作为核心论点进行深度分析。如果不满足，禁止使用“MICE 掩盖 FIT 趋势”之类的脱离事实的归因。
+    3. 差异贡献率 (Contribution to Variance)：在分析具体的 Destination Type 或 Resort 时，必须明确指出其涨跌幅占大盘总 Variance 的百分比权重（例如“GC Mountain贡献了整体跌幅的60%”）。
+
+    [Geopolitical & Macro Synthesis - 时事变局与微观底盘映射]
+    必须将数据异动与当前宏观环境强绑定，避免干瘪的报表朗读：
+    1. 东亚地缘风向（如中日关系降温）：映射到 ESAP mountain (日本雪村) 和 GC 跨境。若量价齐跌，需归因为非官方推广受限及局部民族情绪对冲。
+    2. 全球能源与地缘冲突（如中东局势影响航线）：映射到 IZ (Interzone) 远途长线。高昂燃油附加费及航班运力限制直接压制长线出行意愿。
+    3. 大中华区消费结构性分化：映射到 ADR 与 Lead-Time。高端“老钱风(Quiet Luxury)”心智坚挺致使长提前期(Long-Lock)高客单价稳固；而中产“极致性价比”导致短提前期(Short-Lead, 8-30天)订单激增，决策周期极度缩短。
+    
+    [Output Structure - 强制输出结构 (请使用专业、冷酷的麦肯锡顾问语调)]
+    1. Executive Summary (高管摘要): 一句话定性大盘表现（必须带具体绝对数字与百分比）。
+    2. Core Drag Factors (核心拖累项): 揪出对大盘负面差异贡献最大的 Top 2 维度，深度拆解是 量(HN) 还是 价(ADR) 的问题。
+    3. Structural Anomalies (结构性异动预警): 寻找反直觉数据。例如 ADR 下跌 > 5% 但量未回升，或高毛利直销比例骤降。
+    4. Strategic Directives (实战战术指令): 自由发挥给出 2 条具体干预动作。
+       - 🚨 行业绝对红线：禁止提出降低携程 (Ctrip) 等强势 OTA 核心佣金的建议。
+       - 💡 鼓励方向：异业私域联动、动态 Flash Sale、针对长线客的保价承诺、库存与机票打包隐形置换等现代化策略。
+
+    🚨 RIGOROUS REGIONAL DEFINITIONS (CRITICAL MAPPING CHECK):
     - GC mountain: Refers EXCLUSIVELY to China domestic ski resorts.
     - IZ (Interzone): Long-haul destinations.
     - ESAP mountain: Refers EXCLUSIVELY to Japan Ski products.
     - ESAP SUN: Covers Southeast Asia beach & tropical sun destinations.
-    
-    🚨 MACRO RADAR & GEOPOLITICAL INTELLIGENCE:
-    1. Sino-Japanese Relations: Cooling trends restrict proactive official promotion of Japan travel products.
-    2. Long-Haul Logistics: Geopolitical spikes in the Middle East elevate fuel surcharges.
-    
+
     💰 DISTRIBUTION PORTFOLIO MATRIX & REALISTIC STRATEGIC PRAGMATISM:
     - Channel Portfolios: EC w/o Ctrip, Ctrip, MICE, TA.
-    
-    🚨 DATA INTEGRITY & ANOMALY DETECTION (CRITICAL):
-    - You MUST base all numbers strictly on the provided data context. Zero hallucinations.
-    - Look deeply into Non-recurring MICE volume. If a specific resort or zone shows massive MICE volume masking a drop in FIT demand, YOU MUST EXPOSE THIS. 
-    - Calculate or estimate the underlying health of the business by stripping out MICE block anomalies and highlighting FIT contraction risks.
-    
+
     🚨 FORMAT CONSTRAINT:
     Start directly with the core analysis paragraphs and actionable bullet points. Do NOT output metadata like "致：...", "发件人：...".
     """
+    
     messages = [SystemMessage(content=sys_prompt)]
     for msg in chat_history:
-        if msg["role"] == "user": messages.append(HumanMessage(content=msg["content"]))
-        elif msg["role"] == "assistant": messages.append(AIMessage(content=msg["content"]))
+        if msg["role"] == "user": 
+            messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant": 
+            messages.append(AIMessage(content=msg["content"]))
+            
     messages.append(HumanMessage(content=current_prompt + f"\nData context:\n{matrix_summary_str}"))
+    
     try:
         return llm.invoke(messages).content
     except Exception as e:
         return f"Diagnostics engine timeout. Error: {e}"
-
+    
 # =================================================================
 # --- 6. Main Operational UI Flow ---
 # =================================================================
