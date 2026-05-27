@@ -764,7 +764,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
         
-        # 📌 修复点：添加安全检查，避免 KeyError 和崩溃
         required_cols = ['Src_Node', 'Strat_Zone', bv_col]
         if not sk_filtered.empty:
             sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
@@ -781,15 +780,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 nodes = src_nodes + dest_nodes
                 node_map = {name: i for i, name in enumerate(nodes)}
                 
-                # 准备外置标注的文本内容
-                src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
-                dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
-                
-                # 2. 麦肯锡配色逻辑：严格锁定配色
+                # 📌 麦肯锡配色矩阵
                 mckinsey_colors = {
-                    'CM China': '#051C2C',      # 深海蓝（主节点）
-                    'CM Hong Kong': '#A64B35',  # 赤陶土（差异化节点）
-                    'GC SUN': '#A4B6B0',        
+                    'CM China': '#051C2C',      # 深海蓝
+                    'CM Hong Kong': '#A64B35',  # 赤陶土
+                    'GC SUN': '#A4B6B0',        # 鼠尾草绿
                     'GC mountain': '#5C7080',   
                     'ESAP SUN': '#D0DFE7',      
                     'ESAP mountain': '#112E43', 
@@ -797,57 +792,72 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 }
                 node_colors = [mckinsey_colors.get(n, '#A4B6B0') for n in nodes]
                 
-                # 定义节点坐标: 左侧在 0.05, 右侧在 0.95，实现极致留白
-                node_x = [0.05] * len(src_nodes) + [0.95] * len(dest_nodes)
-                node_y = np.linspace(0.15, 0.85, len(nodes)).tolist() 
+                # 📌 准备标签内容：还原到默认 label 中，让 Plotly 引擎自动对齐
+                node_labels = []
+                for n in nodes:
+                    if n in src_tot:
+                        v = src_tot[n]
+                        node_labels.append(f"{n}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€")
+                    elif n in dest_tot:
+                        v = dest_tot[n]
+                        node_labels.append(f"{n}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€")
+                    else:
+                        node_labels.append(n)
+
+                # 📌 连线颜色动态继承：将源节点的 HEX 颜色转为带透明度的 RGBA
+                def hex_to_rgba(hex_color, alpha=0.4):
+                    hex_color = hex_color.lstrip('#')
+                    if len(hex_color) == 6:
+                        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                        return f'rgba({r}, {g}, {b}, {alpha})'
+                    return f'rgba(200, 200, 200, {alpha})'
+
+                sources = [node_map[s] for s in sk_grp['Src_Node']]
+                targets = [node_map[t] for t in sk_grp['Strat_Zone']]
+                values = sk_grp[bv_col].round(0).tolist()
                 
-                # 3. 创建极简 Sankey：移除 label，靠 Annotation 标注
+                # 让每一条流向线的颜色，跟它的发出地（Src_Node）保持一致
+                link_colors = [hex_to_rgba(mckinsey_colors.get(sk_grp['Src_Node'].iloc[i], '#A4B6B0'), 0.35) for i in range(len(sources))]
+                
                 fig_sankey = go.Figure(data=[go.Sankey(
                     arrangement="snap",
                     node=dict(
-                        pad=30, thickness=20,
-                        label=[""] * len(nodes), # 核心：清除区块内文字，彻底解决灰色阴影
+                        pad=25, 
+                        thickness=20,
+                        label=node_labels, # 恢复默认标签，引擎会自动左/右对齐放置在空白处
                         color=node_colors,
-                        x=node_x, y=node_y,
-                        line=dict(color="white", width=2)
+                        line=dict(color="white", width=1),
+                        hoverlabel=dict(bgcolor="white", font=dict(color="black"))
                     ),
                     link=dict(
-                        source=[node_map[s] for s in sk_grp['Src_Node']],
-                        target=[node_map[t] for t in sk_grp['Strat_Zone']],
-                        value=sk_grp[bv_col].round(0).tolist(),
-                        color="rgba(200, 200, 200, 0.3)" # 极致浅色连线，不抢视觉中心
+                        source=sources,
+                        target=targets,
+                        value=values,
+                        color=link_colors, # 应用自动继承的彩色透明连线
+                        hovertemplate='%{source.label} → %{target.label}<br><b>Flow Volume: %{value}€</b><extra></extra>'
                     )
                 )])
                 
-                # 4. 麦肯锡风格标注：外置标注，纯素黑
-                for i, name in enumerate(nodes):
-                    is_left = i < len(src_nodes)
-                    display_text = src_labels.get(name, dest_labels.get(name, name))
-                    fig_sankey.add_annotation(
-                        x=node_x[i] + (-0.03 if is_left else 0.03), 
-                        y=node_y[i],
-                        text=f"<b>{display_text}</b>", 
-                        showarrow=False,
-                        font=dict(size=13, color="black", family="Inter, sans-serif"),
-                        xanchor="right" if is_left else "left"
-                    )
-                
                 fig_sankey.update_layout(
-                    height=600,
+                    height=650,
+                    # 📌 核心修复：左右留出 160px 的超大空白 (margin)，Plotly 就会乖乖把字排在色块外侧
                     margin=dict(l=160, r=160, t=60, b=40),
                     title_text="Source Market → Strategic Zone Flow (M€)",
                     title_font=dict(size=16, color="#051C2C", family="Playfair Display"),
+                    # 强制锁定所有文本纯黑，拒绝杂色
+                    font=dict(size=13, color="black", family="Inter, sans-serif"),
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                # 强制不使用 streamlit 主题，实现真素黑
+                # 保持 theme=None 彻底阻断底板灰色阴影干扰
                 st.plotly_chart(fig_sankey, use_container_width=True, theme=None)
                 
             else:
                 st.info("No corridor records matched for China/HK markers.")
         else:
             st.info("No corridor records matched for China/HK markers.")
+
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:600;'>Strategic Channel Cannibalization & Margin Quality Radar</h3>", unsafe_allow_html=True)
