@@ -764,66 +764,88 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         
         sk_filtered = df_cy_sankey_tags[df_cy_sankey_tags['Market'].str.lower().str.contains('china|hong|香港|中国', na=False)].copy()
         
+        # 📌 修复点：添加安全检查，避免 KeyError 和崩溃
+        required_cols = ['Src_Node', 'Strat_Zone', bv_col]
         if not sk_filtered.empty:
             sk_filtered['Src_Node'] = np.where(sk_filtered['Market'].str.lower().str.contains('hong|香港', na=False), 'CM Hong Kong', 'CM China')
-            sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
-        
-            total_vol = sk_grp[bv_col].sum()
-        
-            src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
-            src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
-        
-            dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
-            dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
-        
-            nodes = list(src_tot.index) + list(dest_tot.index)
-            node_map = {name: i for i, name in enumerate(nodes)}
-            node_display_labels = [src_labels.get(n, dest_labels.get(n, n)) for n in nodes]
-        
-            # ==== 📌 桑基图回退到上一彩色版版本 ====
-            color_palette = px.colors.qualitative.Set3  
-            node_colors = [color_palette[i % len(color_palette)] for i in range(len(nodes))]
             
-            sources = [node_map[s] for s in sk_grp['Src_Node']]
-            targets = [node_map[t] for t in sk_grp['Strat_Zone']]
-            values = sk_grp[bv_col].round(0).tolist()
-            link_texts = [f"Flow Volume: {v/1e6:.2f}M€" for v in values]
-            
-            fig_sankey = go.Figure(data=[go.Sankey(
-                arrangement="snap",  # 自动调整节点布局
-                node=dict(
-                    pad=30,          
-                    thickness=25,    
-                    line=dict(color="white", width=0.5),
-                    label=node_display_labels,
-                    color=node_colors,
-                    # 强制设定文本颜色为黑色，移除任何阴影或背景效果
-                    hoverlabel=dict(bgcolor="white", font=dict(color="black")),
-                ),
-                link=dict(
-                    source=sources,
-                    target=targets,
-                    value=values,
-                    color="rgba(100, 100, 150, 0.4)",  # 统一浅色连线
-                    customdata=link_texts,
-                    hovertemplate='%{source.label} → %{target.label}<br><b>%{customdata}</b><extra></extra>'
+            if all(col in sk_filtered.columns for col in required_cols):
+                sk_grp = sk_filtered.groupby(['Src_Node', 'Strat_Zone'])[bv_col].sum().reset_index()
+                
+                total_vol = sk_grp[bv_col].sum()
+                src_tot = sk_grp.groupby('Src_Node')[bv_col].sum()
+                dest_tot = sk_grp.groupby('Strat_Zone')[bv_col].sum()
+                
+                src_nodes = sk_grp['Src_Node'].unique().tolist()
+                dest_nodes = sk_grp['Strat_Zone'].unique().tolist()
+                nodes = src_nodes + dest_nodes
+                node_map = {name: i for i, name in enumerate(nodes)}
+                
+                # 准备外置标注的文本内容
+                src_labels = {s: f"{s}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for s, v in src_tot.items()}
+                dest_labels = {d: f"{d}<br>{v/total_vol*100:.1f}%<br>{v/1e6:.1f}M€" for d, v in dest_tot.items()}
+                
+                # 2. 麦肯锡配色逻辑：严格锁定配色
+                mckinsey_colors = {
+                    'CM China': '#051C2C',      # 深海蓝（主节点）
+                    'CM Hong Kong': '#A64B35',  # 赤陶土（差异化节点）
+                    'GC SUN': '#A4B6B0',        
+                    'GC mountain': '#5C7080',   
+                    'ESAP SUN': '#D0DFE7',      
+                    'ESAP mountain': '#112E43', 
+                    'IZ': '#EAECEF'             
+                }
+                node_colors = [mckinsey_colors.get(n, '#A4B6B0') for n in nodes]
+                
+                # 定义节点坐标: 左侧在 0.05, 右侧在 0.95，实现极致留白
+                node_x = [0.05] * len(src_nodes) + [0.95] * len(dest_nodes)
+                node_y = np.linspace(0.15, 0.85, len(nodes)).tolist() 
+                
+                # 3. 创建极简 Sankey：移除 label，靠 Annotation 标注
+                fig_sankey = go.Figure(data=[go.Sankey(
+                    arrangement="snap",
+                    node=dict(
+                        pad=30, thickness=20,
+                        label=[""] * len(nodes), # 核心：清除区块内文字，彻底解决灰色阴影
+                        color=node_colors,
+                        x=node_x, y=node_y,
+                        line=dict(color="white", width=2)
+                    ),
+                    link=dict(
+                        source=[node_map[s] for s in sk_grp['Src_Node']],
+                        target=[node_map[t] for t in sk_grp['Strat_Zone']],
+                        value=sk_grp[bv_col].round(0).tolist(),
+                        color="rgba(200, 200, 200, 0.3)" # 极致浅色连线，不抢视觉中心
+                    )
+                )])
+                
+                # 4. 麦肯锡风格标注：外置标注，纯素黑
+                for i, name in enumerate(nodes):
+                    is_left = i < len(src_nodes)
+                    display_text = src_labels.get(name, dest_labels.get(name, name))
+                    fig_sankey.add_annotation(
+                        x=node_x[i] + (-0.03 if is_left else 0.03), 
+                        y=node_y[i],
+                        text=f"<b>{display_text}</b>", 
+                        showarrow=False,
+                        font=dict(size=13, color="black", family="Inter, sans-serif"),
+                        xanchor="right" if is_left else "left"
+                    )
+                
+                fig_sankey.update_layout(
+                    height=600,
+                    margin=dict(l=160, r=160, t=60, b=40),
+                    title_text="Source Market → Strategic Zone Flow (M€)",
+                    title_font=dict(size=16, color="#051C2C", family="Playfair Display"),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
                 )
-            )])
-            
-            fig_sankey.update_layout(
-                height=650,
-                # 📌 强制锁定纯黑色字体
-                font=dict(size=13, family="Inter", color="black"),
-                margin=dict(l=20, r=20, t=40, b=20),
-                title_text="Source Market → Strategic Zone Flow (M€)",
-                title_font=dict(size=16, color="#051C2C"),
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)'
-            )
-            
-            # 📌 加入 theme=None: 彻底阻断 Streamlit 对文字强加的灰色半透明底板/阴影特性，还原本色的极简黑字！
-            st.plotly_chart(fig_sankey, use_container_width=True, theme=None)
-            
+                
+                # 强制不使用 streamlit 主题，实现真素黑
+                st.plotly_chart(fig_sankey, use_container_width=True, theme=None)
+                
+            else:
+                st.info("No corridor records matched for China/HK markers.")
         else:
             st.info("No corridor records matched for China/HK markers.")
 
