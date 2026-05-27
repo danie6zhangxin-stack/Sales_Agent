@@ -792,7 +792,18 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 }
                 node_colors = [mckinsey_colors.get(n, '#A4B6B0') for n in nodes]
                 
-                # 📌 准备标签内容：还原到默认 label 中，让 Plotly 引擎自动对齐
+                # 📌 连线颜色动态继承：将源节点的 HEX 颜色转为带透明度的 RGBA
+                def get_rgba(hex_color, alpha=0.35):
+                    hex_color = hex_color.lstrip('#')
+                    if len(hex_color) == 6:
+                        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                        return f'rgba({r}, {g}, {b}, {alpha})'
+                    return f'rgba(200, 200, 200, {alpha})'
+
+                # 提取每条连线的源节点颜色
+                link_colors = [get_rgba(mckinsey_colors.get(src, '#A4B6B0')) for src in sk_grp['Src_Node']]
+
+                # 📌 还原 Native Label：给足 Margin 后，引擎会自动精准左右对齐
                 node_labels = []
                 for n in nodes:
                     if n in src_tot:
@@ -804,53 +815,52 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     else:
                         node_labels.append(n)
 
-                # 📌 连线颜色动态继承：将源节点的 HEX 颜色转为带透明度的 RGBA
-                def hex_to_rgba(hex_color, alpha=0.4):
-                    hex_color = hex_color.lstrip('#')
-                    if len(hex_color) == 6:
-                        r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-                        return f'rgba({r}, {g}, {b}, {alpha})'
-                    return f'rgba(200, 200, 200, {alpha})'
-
                 sources = [node_map[s] for s in sk_grp['Src_Node']]
                 targets = [node_map[t] for t in sk_grp['Strat_Zone']]
                 values = sk_grp[bv_col].round(0).tolist()
-                
-                # 让每一条流向线的颜色，跟它的发出地（Src_Node）保持一致
-                link_colors = [hex_to_rgba(mckinsey_colors.get(sk_grp['Src_Node'].iloc[i], '#A4B6B0'), 0.35) for i in range(len(sources))]
                 
                 fig_sankey = go.Figure(data=[go.Sankey(
                     arrangement="snap",
                     node=dict(
                         pad=25, 
                         thickness=20,
-                        label=node_labels, # 恢复默认标签，引擎会自动左/右对齐放置在空白处
+                        line=dict(color="white", width=0.5),
+                        label=node_labels, # 放回 Label 中
                         color=node_colors,
-                        line=dict(color="white", width=1),
                         hoverlabel=dict(bgcolor="white", font=dict(color="black"))
                     ),
                     link=dict(
                         source=sources,
                         target=targets,
                         value=values,
-                        color=link_colors, # 应用自动继承的彩色透明连线
+                        color=link_colors, # 动态源颜色连线
                         hovertemplate='%{source.label} → %{target.label}<br><b>Flow Volume: %{value}€</b><extra></extra>'
                     )
                 )])
                 
+                # 📌 核心 CSS 黑科技：强行抹除 Plotly SVG 引擎自带的文字白边/灰底阴影，还原纯素黑！
+                st.markdown("""
+                <style>
+                .sankey-text, .sankey text {
+                    fill: #000000 !important;
+                    text-shadow: none !important;
+                    font-weight: 600 !important;
+                }
+                </style>
+                """, unsafe_allow_html=True)
+
                 fig_sankey.update_layout(
-                    height=650,
-                    # 📌 核心修复：左右留出 160px 的超大空白 (margin)，Plotly 就会乖乖把字排在色块外侧
-                    margin=dict(l=160, r=160, t=60, b=40),
+                    height=600,
+                    # 📌 留足左右 Margin (160px)：这是让 Plotly 把字乖乖排在色块外面的最关键设置
+                    margin=dict(l=160, r=160, t=50, b=50),
                     title_text="Source Market → Strategic Zone Flow (M€)",
                     title_font=dict(size=16, color="#051C2C", family="Playfair Display"),
-                    # 强制锁定所有文本纯黑，拒绝杂色
                     font=dict(size=13, color="black", family="Inter, sans-serif"),
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)'
                 )
                 
-                # 保持 theme=None 彻底阻断底板灰色阴影干扰
+                # 使用 theme=None 绕过 Streamlit 默认干预
                 st.plotly_chart(fig_sankey, use_container_width=True, theme=None)
                 
             else:
