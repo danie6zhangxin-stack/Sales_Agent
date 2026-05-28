@@ -7,3 +7,5 @@ matplotlib
 seaborn
 plotly
 duckduckgo-search
+langchain-community
+tavily-python
