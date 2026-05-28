@@ -1,12 +1,20 @@
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_community.utilities.tavily_search import TavilySearchAPIWrapper
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 import datetime
+
+# =================================================================
+# --- 0. API Keys Setup ---
+# =================================================================
+# 设置 Tavily API Key (全局)
+os.environ["TAVILY_API_KEY"] = "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"
 
 # =================================================================
 # --- 1. Executive Visual Configuration (McKinsey Strategic UI) ---
@@ -316,63 +324,63 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
-def generate_weekly_diagnostics(context_info, matrix_summary_str, chat_history, current_prompt):
+def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Executive Intelligence Brain of ClubMed, serving simultaneously as our Senior Strategic Analyst, Chief Financial Officer (CFO), and Global Sales Director. 
     Data Scope Environment: {context_info}
     
-    🚨 【财务审计铁律：拒绝大盘数字幻觉】
-    - 报告开篇对大盘总预订量（Total BV）、去年总金额、绝对差额和增长率的定调，必须与该数据块中的真实数字保持100%完全绝对一致！
-    - 严禁自己去对下方的细分渠道/战区表格进行心算加总，严禁凭空捏造任何脱离该顶层总数块的幻觉数字。
-    - 如果差额为正，定调为“大盘总量报喜，但需穿透质量”；如果差额为负，定调为“系统性失血，全面防守止血”。
+    ================================================================================
+    🚨 【第一重盾牌：大盘数字绝对锚定铁律（ANTI-HALLUCINATION ANCHOR）】
+    ================================================================================
+    1. 你必须、且只能从输入数据最顶部的【=== GLOBAL OMNI GRAND TOTAL ===】明文块中读取大盘宏观总量（包含当前总预订量CY、去年总预订量PY、绝对差额Variance、同比增速%）。
+    2. 报告开篇涉及大盘总盘子的数字，必须与该明文块【一字不差地精准引用】！严禁跳过明文块去肉眼心算下方细分矩阵的表格，严禁自行发挥编造任何大盘总额。
+    3. 报告的战略总调性必须严格受到大盘总差额（Variance）正负号的绝对强控：
+       - 若 Variance 为正，开篇定调必须是：“大盘总量报喜，但需穿透增长质量”；
+       - 若 Variance 为负，开篇定调必须是：“系统性失血，全面防守止血”。
 
-    🚨 【第二道防线：绝对金额的商业体感 (Magnitude Intuition)】
-    你必须具备极强的财务常识，绝不能被夸张的百分比（如 +931%）洗脑。请牢记以下绝对变动绝对值的业务体感：
-    - 0.01M€ = 1万欧元：仅是1-2个家庭的单子。
-    - 0.03M€ = 3万欧元：顶多是一个20人小型企业团建，或几笔常规散客订单。
-    - 0.20M€ = 20万欧元：属于常规的业务波动。
-    - >0.50M€ = 50万欧元以上：这才是能影响大盘的战略性异动。
-    - 死命令：如果某个渠道或战区的绝对差额（Variance）绝对值小于 0.1M€，这在财务上属于【日常统计噪音】！严禁使用“暴涨、暴跌、系统性溃败、跨国大单、利润收割机”等极度戏剧化的词汇去描述几十万人民币的常规微小波动！
+    ================================================================================
+    🚨 【第二重盾牌：Tavily 实时动态情报舱（EXTERNAL INTELLIGENCE SYNTHESIS）】
+    ================================================================================
+    下方【Tavily 实时联网检索情报】白纸黑字记录了当前全网最新的航班运力、地缘政治、签证政策及消费心态动态。你必须将其作为归因的核心依据，完成与内部财务底盘数据的“化学反应”：
+    
+    【Tavily 实时联网检索情报】：
+    {search_intel_str}
+    
+    1. 运力与成本对齐：如果情报提到某航线直航加密或票价大幅回落，且报表中该战区数据泛绿，你必须敏锐指出这是【大交通运力释放带来的直接通道红利】；反之，若燃油税高企，必须对齐分析其对散客出行的压制。
+    2. 消费心态两极分化：结合最新的宏观经济信心指数，分析中产阶层是否在滑向“极致性价比”（对应国内村平替高增长），高净值人群的“老钱风”是否依旧稳固（对应长线IZ或海岛直销长锁定）。
 
-    🚨 【第三道防线：双季产品的“变身”常识 (Seasonality & Product Shift)】
-    山岳度假村（Mountain）在不同季节卖的是完全不同的东西，必须根据当前筛选的月份对齐常识：
-    - MICE 泡沫刺破：如果某个区域 MICE 变动极小（±0.1M€以内），严禁瞎编“MICE掩盖散客”的套话，必须直面 FIT（散客）的真实涨跌；仅在某区域 MICE 暴增/暴跌（如超 0.5M€）时，才指出这是 Non-recurring 大单。
-    - ESAP Mountain (日本山岳，如北海道)：
-        * 在 S1 (1-4月) 是【顶级滑雪胜地】。
-        * 在 S2 (7-8月暑期) 则是【夏季避暑、花海观赏与自然体验胜地】。
-        * 死命令：如果是暑期数据出现下滑，你必须归因为“中国游客赴北海道夏季避暑意愿下降”，严禁在7-8月暑期报告中提到任何“滑雪需求下降”或“没雪”的字眼，夏天本来就没雪！
-    - GC mountain (国内山岳，如北大壶、长白山等)：
-        * 在 S1 是【国内滑雪平替】。
-        * 在 S2 (7-8月) 则是【夏季山地避暑营、亲子夏令营、户外徒步】。
-        * 死命令：如果暑期 GC Mountain 暴涨，必须归因为“国内山地避暑营/夏令营大获成功”，或者“冬季滑雪极早鸟（Early-Bird）预售大面积提前锁定”。
+    ================================================================================
+    🚨 【第三重盾牌：微观浮点数数量级审计（MAGNITUDE INTUITION）】
+    ================================================================================
+    下方的渠道与战区交叉矩阵中，所有数字均为以【百万欧元（M€）】为基础单位的浮点数！你必须具备清晰的商业量级体感，严禁混淆数量级：
+    - 浮点数 `+0.01` = 0.01M€ = 1万欧元（约8万人民币）：在财务上属于【无战略意义的统计噪音】。
+    - 浮点数 `+0.03` = 0.03M€ = 3万欧元（约24万人民币）：顶多是2-3个家庭的零散订单，或一个小团队单子。
+    - 浮点数 `+0.20` = 0.20M€ = 20万欧元：属于常规的业务波动。
+    - 浮点数 `>+0.50` = 0.50M€以上：这才属于能惊动高管层的战略性大异动或大单。
+    - 【死命令】：严禁被变动百分比唬住！如果某个区域的绝对差额（Variance）绝对值小于 0.1M€，请在分析时直接忽略或定性为常规摆动，【绝对禁止】使用“雪崩式下滑、暴涨几千万、系统性溃败、跨国年会巨额大单”等夸张戏剧化词汇去描述日常噪音！
 
-    🚨 【P&L 利润漏斗与渠道健康度（CFO视角）】
-    不要只看顶线（BV）！真正的营业利润（ROCV）必须穿透商业变动成本：
-    1. 渠道含金量歧视：直销渠道（EC w/o Ctrip）具有最低的获取成本和最高的资本留存率。携程（Ctrip）和传统 TA 伴随着高额的前端佣金（Commission）和后端返点（Rebates）。
-    2. 利润率稀释预警：如果大盘 BV 增长完全由 Ctrip/TA 驱动，而直销在跌，你必须发出【利润率稀释预警（Margin Dilution）】，指出我们正在付出高昂的变动获取成本，损害了最终的 Sales Contribution。
+    ================================================================================
+    🚨 【第四重盾牌：度假村冬夏双重形态与 P&L 资产雷达】
+    ================================================================================
+    1. 季节常识熔断：
+       - S1 (1-4月滑雪季) vs S2 (7-8月暑期盛夏旺季)：山岳度假村（Mountain）在夏天自动切换为【夏季山地避暑、花海观赏与亲子夏令营产品】！夏天日本雪场本来就没雪，日本雪村出现微弱下滑属于正常停摆，【绝对禁止】在7-8月盛夏报告中脑补任何“滑雪需求下降/没雪”的低智商归因！国内雪村暑期泛绿则需精准归因为【避暑营大获成功】或【冬季极早鸟前置锁单】。
+    2. P&L 与资产合同雷达：
+       - L 村 (Leased 重资产直营，如马代、Bali、Phuket、Sahoro)：固定成本极高，跨过损益平衡点后边际利润达 80%，旺季失血是灾难，大涨是奶牛。
+       - M 村 (Managed 轻资产管理，如绝大部分国内村)：无固定成本压力，靠 20% 管理费抽成，是抗周期安全垫，但利润绝对值低。
+       - 渠道利润率：直销（EC w/o Ctrip）含金量最高；Ctrip/TA 吞噬前扣后返。若增长全靠大OTA驱动而直销萎缩，必须触发【利润率稀释预警 (Margin Dilution)】。
 
-    🚨 【地理常识与货币常识硬防线】
-    - ESAP Mountain: 专指日本滑雪度假村（如北海道、长野等）。
-    - GC mountain: 专指中国国内滑雪度假村（如北大壶、延庆等）。
-    - ESAP SUN: 严格包含马尔代夫（Kani、Finolhu）及东南亚阳光度假村。
-    - IZ (Interzone): 专指真正的高客单、跨洲远途长线市场（如欧洲阿尔卑斯、北美等）。
-    - 货币单位常识：宏观大盘营业额统一使用百万欧元（M€）。当分析到中国本土细分产品（如家庭早鸟、闺蜜游套餐）的实际销售单价时，几百或几千的数字在常识上明显属于人民币，请使用（¥）或人民币进行表述，绝对禁止写成几千欧元。
+    ================================================================================
+    🚨 【战术指令与渠道高情商博弈红线】
+    ================================================================================
+    给出 2-3 条击中要害的实战方案。
+    - 🚨 【商务绝对红线】：【绝对禁止】在报告中提出任何“直接降低给携程等核心渠道佣金率”的业余财务方案！
+    - 💡 【高情商反击】：采取“价值/库存交换”。向携程提供独家、非标的专属体验包，用固定库存去强行置换其核心搜索页面的【免费置顶曝光位】；或通过直销私域盲盒预售、机酒隐形打包等手段绕过比价。
 
-    🚨 【资产合同模式与风险敞口（Asset & Contract Radar）】
-    请结合以下度假村合同属性深度评估盈亏风险：
-    - Leased Contract (重资产直营L): 包含 Bali, Bintan, Phuket, Cherating, Kani, Finolhu, Kabira, Sahoro 以及所有 IZ 远途村。
-      * 财务逻辑：承担全部运营固定成本（Rent/FTE/Energy）。盈亏平衡点高，但越过后新增客人的边际利润率极高（约80%）。
-      * 洞察要求：如果在旺季这些 L 村出现散客（FIT）暴跌，必须拉响“底层利润(ROCV)崩塌”的最高红色警报；若大涨，定性为“绝对利润收割机”。
-    - Managed Contract (轻资产管理M): 包含绝大部分国内村 (Guilin, Lijiang, Yabuli, Beidahu, Changbaishan, Anji, Taicang 等) 及日本部分雪村 (Tomamu, Kiroro)。
-      * 财务逻辑：无度假村直接固定成本压力，靠收取按约定的利润抽成（约20% Contracted Margin）。
-      * 洞察要求：属于抗压安全垫，其增长是纯顶线贡献，但对公司绝对利润绝对值拉动作用弱于 L 村。
-
-    🚨 【战术指令与行动方案（四大杠杆）】
-    基于 Club Med 战略方向，提出 2-3 条极具操作性的行动指令。
-    - 可选弹药库（四大提效杠杆）：1. 提升直销占比 (Increase Direct Dist.) 2. 激活入境游 (Inbound, 如日韩台客源填平淡季) 3. 延长平均停留夜数 (Optimize LoS, 分摊固定成本) 4. 猛攻 Leased 模式的过点边际收益。
-    - 绝对红线：禁止提出降低携程等 OTA 佣金的方案！请从私域盲盒、长线预售保价、机酒隐形打包等高情商商业手段破局。
-
-    🚨 FORMAT CONSTRAINT:
-    请直接以高级商业备忘录风格输出，多用精炼的段落与 Bullet Points。严禁任何公文元数据（如“致：...”、“日期：...”）。切记：微观细分产品的单价使用人民币（¥），宏观大盘营业额严格使用 M€。
+    ================================================================================
+    🚨 【格式与币种强制规范】
+    ================================================================================
+    1. 请直接以高级总裁商业备忘录风格输出，多用精炼的段落与 Bullet Points，展现高级管理层的果断与冷静。
+    2. 严禁任何公文、邮件元数据（如“致：...”、“日期：...”）。
+    3. 宏观大盘营业额严格使用百万欧元（M€）；具体提及中国本土促销产品、细分套餐定价（如家庭早鸟、非标盲盒）时，必须使用（¥）或人民币表述，绝对禁止将几千人民币写成几千欧元。
     """
     
     messages = [SystemMessage(content=sys_prompt)]
@@ -579,7 +587,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             seg_cy_bv, seg_cy_hn = df_s[f'{bv_col}_CY'].sum(), df_s['HN_CY'].sum()
             seg_py_bv, seg_py_hn = df_s[f'{bv_col}_PY'].sum(), df_s['HN_PY'].sum()
             gt_cy_b += seg_cy_bv; gt_cy_h += seg_cy_hn
-            gt_py_b += seg_py_bv; gt_py_h += seg_py_hn
+            gt_py_b += seg_py_bv; gt_py_h += gt_py_h
             
             first_s = True
             for ch in df_s['Channel_Group'].unique():
@@ -1231,14 +1239,90 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         )
         st.plotly_chart(fig_diag_bar, use_container_width=True)
         
-        if st.button("🚀 Trigger McKinsey Lean Executive Weekly Diagnostic Report"):
-            with st.spinner("AI 正在结合硬性渠道成本结构与宏观政经地缘变局破局中..."):
-                matrix_str = strat_matrix.to_string(index=False)
-                chat_history = []
-                report_out = generate_weekly_diagnostics(chart_info, matrix_str, chat_history, "基于以上战区及端口数据，融合中日政策环境限制、燃油成本等地缘要素，生成一份深度管理层复盘建议报告。")
-                st.markdown("---")
-                st.markdown("### 🏢 Executive Weekly Advisory Insight")
-                st.success(report_out)
+        if st.button("🚀 Trigger McKinsey Lean Executive Weekly Diagnostic Report with Live Tavily Radar"):
+            
+            try:
+                tavily_client = TavilySearchAPIWrapper()
+            except Exception as e:
+                st.error("🔑 无法初始化 Tavily 引擎，请检查 TAVILY_API_KEY 环境变量配置。")
+                st.stop()
+
+            # 📌 1. 后台 Python 自动执行数据硬审计
+            cy_total = strat_matrix[f'{bv_col}_CY'].sum()
+            py_total = strat_matrix[f'{bv_col}_PY'].sum()
+            var_total = cy_total - py_total
+            pct_total = (var_total / py_total * 100) if py_total > 0 else 0.0
+            
+            # 锁定最大出血点和最大增长点 (剔除总数行)
+            valid_rows = strat_matrix[strat_matrix['Strat_Zone'] != 'GLOBAL OMNI TOTAL']
+            
+            if not valid_rows.empty:
+                max_drag_row = valid_rows.loc[valid_rows['Variance'].idxmin()]
+                max_grow_row = valid_rows.loc[valid_rows['Variance'].idxmax()]
+                drag_zone = max_drag_row['Strat_Zone']
+                grow_zone = max_grow_row['Strat_Zone']
+            else:
+                drag_zone = "出境度假村"
+                grow_zone = "国内度假村"
+            
+            # 📌 2. 仪式感流式滚动提示窗
+            status_placeholder = st.empty()
+            
+            with status_placeholder.container():
+                st.info(f"📊 内部财务审计完毕：大盘差异 {var_total/1e6:+.2f}M{curr_sym}。已锁定核心病灶区 【{drag_zone}】 与增长引擎区 【{grow_zone}】...")
+            
+            # 📌 3. 智能化组装“宏观+微观双轨搜索词”
+            season_context = cons_desc 
+            
+            query_macro_drag = f"{season_context} {drag_zone} 中国游客 旅游签证 消费信心 趋势"
+            query_micro_drag = f"{season_context} {drag_zone} 航班运力 直航增班 机票价格 燃油税"
+            query_macro_grow = f"{season_context} {grow_zone} 旅游 亲子夏令营 避暑 市场调研报告"
+            
+            search_queries = [query_macro_drag, query_micro_drag, query_macro_grow]
+            
+            # 📌 4. 触发 Tavily 并发集群检索
+            search_results_raw = []
+            for idx, q in enumerate(search_queries):
+                with status_placeholder.container():
+                    st.spinner(f"✈️ 实时雷达已联网：正在精准检索网络情报 [{idx+1}/{len(search_queries)}]: '{q}' ...")
+                try:
+                    res = tavily_client.results(query=q, max_results=2)
+                    for r in res:
+                        search_results_raw.append(f"🔍 信号源: {r['title']}\n📝 摘要: {r['content']}\n")
+                except Exception as e:
+                    search_results_raw.append(f"⚠️ 检索失败 '{q}': {e}")
+            
+            search_intel_str = "\n".join(search_results_raw)
+            
+            with status_placeholder.container():
+                st.success("👔 外部情报网络脱水完毕！正在交由 CFO 与销售总监联合撰写最终总裁战略备忘录...")
+            
+            # 📌 5. 拼接最权威置顶的 Grand Total 护栏
+            total_header = (
+                f"=== GLOBAL OMNI GRAND TOTAL ===\n"
+                f"CY Total: {cy_total/1e6:.2f}M{curr_sym}\n"
+                f"PY Total: {py_total/1e6:.2f}M{curr_sym}\n"
+                f"Variance: {var_total/1e6:+.2f}M{curr_sym} ({pct_total:+.1f}%)\n"
+                f"================================\n\n"
+            )
+            matrix_str = total_header + strat_matrix.to_string(index=False)
+            
+            # 📌 6. 唤醒模型，吐出字字珠玑的决策报告
+            chat_history = []
+            task_prompt = "请将内部财务表格中的每一个异动点，无缝缝合进 Tavily 检索回来的实时运力和宏观经济情报中，完成多维深度归因，并输出具体的战术实战行动方案。"
+            
+            report_out = generate_weekly_diagnostics(
+                chart_info, 
+                matrix_str, 
+                search_intel_str, 
+                chat_history, 
+                task_prompt
+            )
+            
+            status_placeholder.empty()
+            st.markdown("---")
+            st.markdown("### 🏢 Executive Weekly Advisory Insight (Tavily Live Net)")
+            st.write(report_out)
 
     # =================================================================
     # 🤖 TAB 5: STRATEGIC AI ADVISOR
@@ -1256,7 +1340,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 with st.chat_message("user"): st.write(prompt)
                 with st.chat_message("assistant"):
                     with st.spinner("Analyzing context, geopolitics & browsing trends..."):
-                        insights = generate_weekly_diagnostics(chart_info, df_cy_tags.head(10).to_string(), st.session_state.messages[:-1], prompt)
+                        insights = generate_weekly_diagnostics(chart_info, df_cy_tags.head(10).to_string(), "No real-time search for quick chat.", st.session_state.messages[:-1], prompt)
                         st.info(insights)
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
