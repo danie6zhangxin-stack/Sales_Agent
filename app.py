@@ -356,7 +356,7 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_s
     2. 签证政策与地缘政治事件（免签、落地签、限制）。
     3. 消费者信心与宏观经济情绪（消费降级、奢侈游韧性）。
     4. 其他任何与当前消费季节及目的地战区直接相关的突发信号。
-    5. **【强制项】地缘政治及双边关系动态**：必须涵盖中日、中韩、中欧等核心出境游方向的重大外交摩擦、民粹情绪、核污水排海争议、签证收紧或放宽等信号。尤其要重点评估中日关系冷暖对日本线滑雪、观光客流的结构性打击。
+    5. **【强制项】地缘政治及双边关系动态**：必须涵盖中日、中韩、中欧等核心出境游方向的重大外交摩擦、民粹情绪、核污水排海争议、签证收紧或放宽等信号。尤其要重点检索并评估当前日本首相高市早苗"台湾有事"涉台言论对中日双边关系的结构性打击，以及由此引发的中方旅行提醒、航班大面积取消、中国游客退票潮等连锁后果。对日本方向的失血分析必须将"政治信任赤字"置于经济因素之前。
     要求：概述精炼，约 400-500 字，能够提供给决策者做参考。
 
     ================================================================================
@@ -1295,12 +1295,13 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             
             # 📌 3. 智能化组装“宏观+微观双轨搜索词”
             season_context = cons_desc 
-            
+
+            query_geopolitics = f"{season_context} 中日关系 台湾问题 地缘政治 高市早苗 涉台言论 中国游客 赴日旅游 影响"
             query_macro_drag = f"{season_context} {drag_zone} 中国游客 旅游签证 消费信心 趋势"
             query_micro_drag = f"{season_context} {drag_zone} 航班运力 直航增班 机票价格 燃油税"
             query_macro_grow = f"{season_context} {grow_zone} 旅游 亲子夏令营 避暑 市场调研报告"
             
-            search_queries = [query_macro_drag, query_micro_drag, query_macro_grow]
+            search_queries = [query_geopolitics, query_macro_drag, query_micro_drag, query_macro_grow]
             
             # 📌 4. 触发 Tavily 并发集群检索
             search_results_raw = []
