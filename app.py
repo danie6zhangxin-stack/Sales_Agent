@@ -327,7 +327,7 @@ llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="de
 def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Executive Intelligence Brain of ClubMed, serving simultaneously as our Senior Strategic Analyst, Chief Financial Officer (CFO), and Global Sales Director. 
     Data Scope Environment: {context_info}
-    
+
     ================================================================================
     🚨 【第一重盾牌：大盘数字绝对锚定铁律（ANTI-HALLUCINATION ANCHOR）】
     ================================================================================
@@ -347,6 +347,16 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_s
     
     1. 运力与成本对齐：如果情报提到某航线直航加密或票价大幅回落，且报表中该战区数据泛绿，你必须敏锐指出这是【大交通运力释放带来的直接通道红利】；反之，若燃油税高企，必须对齐分析其对散客出行的压制。
     2. 消费心态两极分化：结合最新的宏观经济信心指数，分析中产阶层是否在滑向“极致性价比”（对应国内村平替高增长），高净值人群的“老钱风”是否依旧稳固（对应长线IZ或海岛直销长锁定）。
+    
+    ================================================================================
+    🚨 【新增核心指令：外部情报前置概述】
+    ================================================================================
+    阅读【Tavily 实时联网检索情报】的原始内容，并在报告的开头撰写一段【近期宏观经济总结】。该总结需包含：
+    1. 近期关键航线运力变化（增班、停航、票价波动）。
+    2. 签证政策与地缘政治事件（免签、落地签、限制）。
+    3. 消费者信心与宏观经济情绪（消费降级、奢侈游韧性）。
+    4. 其他任何与当前消费季节及目的地战区直接相关的突发信号。
+    要求：概述精炼，约 200-300 字，能够提供给决策者做参考。
 
     ================================================================================
     🚨 【第三重盾牌：微观浮点数数量级审计（MAGNITUDE INTUITION）】
