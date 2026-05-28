@@ -382,9 +382,10 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_s
       * 洞察要求：属于抗压安全垫，其增长是纯顶线贡献，但对公司绝对利润绝对值拉动作用弱于 L 村。
 
     🚨 【地理常识与货币常识硬防线】
-    - ESAP Mountain: 专指日本滑雪度假村（如北海道、长野等）。
-    - GC mountain: 专指中国国内滑雪度假村（如北大壶、延庆等）。
-    - ESAP SUN: 严格包含马尔代夫（Kani、Finolhu）及东南亚阳光度假村。
+    - ESAP Mountain: 专指日本滑雪度假村（Sahoro, Tomamu, Kiroro Peak, Kiroro Grand）。
+    - GC mountain: 专指中国国内滑雪度假村（北大壶，长白山，亚布力）。
+    - GC Sun: 专指中国国内阳光度假村（丽江，桂林）。
+    - ESAP SUN: 严格包含马尔代夫（Kani、Finolhu）及东南亚阳光度假村（Bali, Phuket, Cherating, Bintan, Kabira, Kota Kinabalu, 。
     - IZ (Interzone): 专指真正的高客单、跨洲远途长线市场（如欧洲阿尔卑斯、北美等）。
     - 货币单位常识：宏观大盘营业额统一使用百万欧元（M€）。当分析到中国本土细分产品（如家庭早鸟、闺蜜游套餐）的实际销售单价时，几百或几千的数字在常识上明显属于人民币，请使用（¥）或人民币进行表述，绝对禁止写成几千欧元。
 
