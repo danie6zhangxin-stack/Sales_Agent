@@ -560,8 +560,10 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
         
         vals = [zone_val, res_val, f"{cy_val:.2f}M", f"{py_val:.2f}M", f"{var_val:+.2f}M", status_val]
         for col_idx, v in enumerate(vals):
+            # ✅ 这里修复：改为 row_idx
             cell = table2.cell(row_idx, col_idx)
             cell.text = v; cell.fill.solid()
+            # ✅ 这里修复：改为 row_idx 斑马线逻辑
             cell.fill.fore_color.rgb = CM_SAND if row_idx % 2 == 0 else CM_WHITE
             p_cell = cell.text_frame.paragraphs[0]
             apply_text_styling(p_cell, 'Arial', 9, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
