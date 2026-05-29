@@ -16,12 +16,13 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION, XL_LABEL_POSITION
 import io
 
 # =================================================================
 # --- 0. API Keys Setup ---
 # =================================================================
-# 设置 Tavily API Key (全局)
 os.environ["TAVILY_API_KEY"] = "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"
 
 # =================================================================
@@ -332,85 +333,46 @@ except:
 
 llm = ChatOpenAI(api_key=api_key, base_url="https://api.deepseek.com", model="deepseek-chat", temperature=0.1)
 
+# ✅ Requirement 1 & 7: Update AI Prompt to force FULL ENGLISH and specific formatting blocks
 def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_str, chat_history, current_prompt):
     sys_prompt = f"""You are the Elite Executive Intelligence Brain of ClubMed, serving simultaneously as our Senior Strategic Analyst, Chief Financial Officer (CFO), and Global Sales Director. 
     Data Scope Environment: {context_info}
 
     ================================================================================
-    🚨 【第一重盾牌：大盘数字绝对锚定铁律（ANTI-HALLUCINATION ANCHOR）】
+    🚨 [STRICT MASTER RULE: FULL PROFESSIONAL ENGLISH ONLY]
     ================================================================================
-    1. 你必须、且只能从输入数据最顶部的【=== GLOBAL OMNI GRAND TOTAL ===】明文块中读取大盘宏观总量（包含当前总预订量CY、去年总预订量PY、绝对差额Variance、同比增速%）。
-    2. 报告开篇涉及大盘总盘子的数字，必须与该明文块【一字不差地精准引用】！严禁跳过明文块去肉眼心算下方细分矩阵的表格，严禁自行发挥编造任何大盘总额。
-    3. 报告的战略总调性必须严格受到大盘总差额（Variance）正负号的绝对强控：
-       - 若 Variance 为正，开篇定调必须是：“大盘总量报喜，但需穿透增长质量”；
-       - 若 Variance 为负，开篇定调必须是：“系统性失血，全面防守止血”。
+    You MUST output your ENTIRE response in professional business English. Absolutely NO Chinese characters are allowed in the final output.
 
     ================================================================================
-    🚨 【第二重盾牌：Tavily 实时动态情报舱（EXTERNAL INTELLIGENCE SYNTHESIS）】
+    🚨 [ANTI-HALLUCINATION ANCHOR]
     ================================================================================
-    下方【Tavily 实时联网检索情报】白纸黑字记录了当前全网最新的航班运力、地缘政治、签证政策及消费心态动态。你必须将其作为归因的核心依据，完成与内部财务底盘数据的“化学反应”：
-    
-    【Tavily 实时联网检索情报】：
+    1. Read the macro totals exactly from the [=== GLOBAL OMNI GRAND TOTAL ===] data block.
+    2. Base the overall tone purely on the Total Variance (Positive = "Omni-channel resiliency / Growth", Negative = "Systemic headwind / Defensive posture").
+
+    ================================================================================
+    🚨 [EXTERNAL INTELLIGENCE SYNTHESIS]
+    ================================================================================
+    Integrate the following Tavily real-time network intelligence into your analysis:
     {search_intel_str}
-    
-    1. 运力与成本对齐：如果情报提到某航线直航加密或票价大幅回落，且报表中该战区数据泛绿，你必须敏锐指出这是【大交通运力释放带来的直接通道红利】；反之，若燃油税高企，必须对齐分析其对散客出行的压制。
-    2. 消费心态两极分化：结合最新的宏观经济信心指数，分析中产阶层是否在滑向“极致性价比”（对应国内村平替高增长），高净值人群的“老钱风”是否依旧稳固（对应长线IZ或海岛直销长锁定）。
-    
-    ================================================================================
-    🚨 【新增核心指令：外部情报前置概述】
-    ================================================================================
-    阅读【Tavily 实时联网检索情报】的原始内容，并在报告的开头撰写一段【近期宏观经济总结】。该总结需包含：
-    1. 近期关键航线运力变化（增班、停航、票价波动）。
-    2. 签证政策与地缘政治事件（免签、落地签、限制）。
-    3. 消费者信心与宏观经济情绪（消费降级、奢侈游韧性）。
-    4. 其他任何与当前消费季节及目的地战区直接相关的突发信号。
-    5. **【强制项】地缘政治及双边关系动态**：必须涵盖中日、中韩、中欧等核心出境游方向的重大外交摩擦、民粹情绪、核污水排海争议、签证收紧或放宽等信号。尤其要重点检索并评估当前日本首相高市早苗"台湾有事"涉台言论对中日双边关系的结构性打击，以及由此引发的中方旅行提醒、航班大面积取消、中国游客退票潮等连锁后果。对日本方向的失血分析必须将"政治信任赤字"置于经济因素之前。
-    要求：概述精炼，约 400-500 字，能够提供给决策者做参考。
+    - Align flight capacity (e.g., direct flight additions, fuel tax drops) with destination growth.
+    - Factor in geopolitical tension (especially Japan/Taiwan relations, visa policies) into overseas performance dips.
 
     ================================================================================
-    🚨 【第三重盾牌：微观浮点数数量级审计（MAGNITUDE INTUITION）】
+    🚨 [MANDATORY OUTPUT STRUCTURE FOR PPTX EXTRACTION]
     ================================================================================
-    下方的渠道与战区交叉矩阵中，所有数字均为以【百万欧元（M€）】为基础单位的浮点数！你必须具备清晰的商业量级体感，严禁混淆数量级：
-    - 浮点数 `+0.01` = 0.01M€ = 1万欧元（约8万人民币）：在财务上属于【无战略意义的统计噪音】。
-    - 浮点数 `+0.03` = 0.03M€ = 3万欧元（约24万人民币）：顶多是2-3个家庭的零散订单，或一个小团队单子。
-    - 浮点数 `+0.20` = 0.20M€ = 20万欧元：属于常规的业务波动。
-    - 浮点数 `>+0.50` = 0.50M€以上：这才属于能惊动高管层的战略性大异动或大单。
-    - 【死命令】：严禁被变动百分比唬住！如果某个区域的绝对差额（Variance）绝对值小于 0.1M€，请在分析时直接忽略或定性为常规摆动，【绝对禁止】使用“雪崩式下滑、暴涨几千万、系统性溃败、跨国年会巨额大单”等夸张戏剧化词汇去描述日常噪音！
+    You MUST format your response EXACTLY using the three bracketed headers below. Do not add any other major headers.
 
-    ================================================================================
-    🚨 【第四重盾牌：度假村冬夏双重形态与 P&L 资产雷达】
-    ================================================================================
-    1. 季节常识熔断：
-       - S1 (1-4月滑雪季) vs S2 (7-8月暑期盛夏旺季)：山岳度假村（Mountain）在夏天自动切换为【夏季山地避暑、花海观赏与亲子夏令营产品】！夏天日本雪场本来就没雪，日本雪村出现微弱下滑属于正常停摆，【绝对禁止】在7-8月盛夏报告中脑补任何“滑雪需求下降/没雪”的低智商归因！国内雪村暑期泛绿则需精准归因为【避暑营大获成功】或【冬季极早鸟前置锁单】。
-    2. P&L 与资产合同雷达：
-    - Leased Contract (重资产直营L): 包含 Bali, Bintan, Phuket, Cherating, Kani, Finolhu, Kabira, Sahoro 以及所有 IZ 远途村。
-      * 财务逻辑：承担全部运营固定成本（Rent/FTE/Energy）。盈亏平衡点高，但越过后新增客人的边际利润率极高（约80%）。
-      * 洞察要求：如果在旺季这些 L 村出现散客（FIT）暴跌，必须拉响“底层利润(ROCV)崩塌”的最高红色警报；若大涨，定性为“绝对利润收割机”。
-    - Managed Contract (轻资产管理M): 包含绝大部分国内村 (Guilin, Lijiang, Yabuli, Beidahu, Changbaishan, Anji, Taicang 等) 及日本部分雪村 (Tomamu, Kiroro)。
-      * 财务逻辑：无度假村直接固定成本压力，靠收取按约定的利润抽成（约20% Contracted Margin）。
-      * 洞察要求：属于抗压安全垫，其增长是纯顶线贡献，但对公司绝对利润绝对值拉动作用弱于 L 村。
+    [EXECUTIVE SUMMARY]
+    Write 3 to 4 concise bullet points summarizing the overall Volume variance, Destination Type performance, and briefly attribute these changes using the Tavily macro intel provided.
 
-    🚨 【地理常识与货币常识硬防线】
-    - ESAP Mountain: 专指日本滑雪度假村（Sahoro, Tomamu, Kiroro Peak, Kiroro Grand）。
-    - GC mountain: 专指中国国内滑雪度假村（北大壶，长白山，亚布力）。
-    - GC Sun: 专指中国国内阳光度假村（丽江，桂林）。
-    - ESAP SUN: 严格包含马尔代夫（Kani、Finolhu）及东南亚阳光度假村（Bali, Phuket, Cherating, Bintan, Kabira, Kota Kinabalu, 。
-    - IZ (Interzone): 专指真正的高客单、跨洲远途长线市场（如欧洲阿尔卑斯、北美等）。
-    - 货币单位常识：宏观大盘营业额统一使用百万欧元（M€）。当分析到中国本土细分产品（如家庭早鸟、闺蜜游套餐）的实际销售单价时，几百或几千的数字在常识上明显属于人民币，请使用（¥）或人民币进行表述，绝对禁止写成几千欧元。
+    [MACRO ECONOMIC & GEOPOLITICAL CONTEXT]
+    Write a detailed, structured bulleted summary covering:
+    - Recent critical flight capacity changes and fuel tax trends.
+    - Consumer confidence shifts (e.g., "value-for-money" vs luxury resilience).
+    - Geopolitical dynamics (Must include Japan/Taiwan political friction impacts on East Asia travel if relevant).
 
-    ================================================================================
-    🚨 【战术指令与渠道高情商博弈红线】
-    ================================================================================
-    给出 2-3 条击中要害的实战方案。
-    - 🚨 【商务绝对红线】：【绝对禁止】在报告中提出任何“直接降低给携程等核心渠道佣金率”的业余财务方案！
-    - 💡 【高情商反击】：采取“价值/库存交换”。向携程提供独家、非标的专属体验包，用固定库存去强行置换其核心搜索页面的【免费置顶曝光位】；或通过直销私域盲盒预售、机酒隐形打包等手段绕过比价。
-
-    ================================================================================
-    🚨 【格式与币种强制规范】
-    ================================================================================
-    1. 请直接以高级总裁商业备忘录风格输出，多用精炼的段落与 Bullet Points，展现高级管理层的果断与冷静。
-    2. 严禁任何公文、邮件元数据（如“致：...”、“日期：...”）。
-    3. 宏观大盘营业额严格使用百万欧元（M€）；具体提及中国本土促销产品、细分套餐定价（如家庭早鸟、非标盲盒）时，必须使用（¥）或人民币表述，绝对禁止将几千人民币写成几千欧元。
+    [SALES CHALLENGE LIST]
+    Provide exactly 3 hard-hitting strategic questions directed at the Sales Team. These should challenge unrealistic pipelines, OTA cannibalization, or missing counter-strategies for specific underperforming zones. Number them 1., 2., 3.
     """
     
     messages = [SystemMessage(content=sys_prompt)]
@@ -425,12 +387,12 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_s
     try:
         return llm.invoke(messages).content
     except Exception as e:
-        return f"Diagnostics engine timeout. Error: {e}"
+        return f"[EXECUTIVE SUMMARY]\nError: {e}\n\n[MACRO ECONOMIC & GEOPOLITICAL CONTEXT]\nError: {e}\n\n[SALES CHALLENGE LIST]\nError: {e}"
 
 # ---------------------------------------------------------------------------------
 # 💎 核心新增引擎：一键导出 5 页流 McKinsey-Grade PPTX
 # ---------------------------------------------------------------------------------
-def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_out, search_intel_str, chart_info, bv_col):
+def create_executive_pptx(strat_matrix, resort_matrix, df_cy, df_py, curve_data, report_out, search_intel_str, ctx_dict, bv_col):
     prs = Presentation()
     prs.slide_width = Inches(13.333)  # 16:9 标准宽屏比例
     prs.slide_height = Inches(7.5)
@@ -452,218 +414,219 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
         paragraph.font.color.rgb = color_rgb
         paragraph.alignment = alignment
 
-    # 获取大盘核心基础总量 (用于 Slide 1 顶置卡片)
-    cy_total = strat_matrix['CY_M'].sum()
-    py_total = strat_matrix['PY_M'].sum()
+    def set_chart_series_color(series, color_rgb):
+        fill = series.format.fill
+        fill.solid()
+        fill.fore_color.rgb = color_rgb
+
+    # Parse AI Text Sections
+    parts = report_out.split('[MACRO ECONOMIC & GEOPOLITICAL CONTEXT]')
+    exec_summary_text = parts[0].replace('[EXECUTIVE SUMMARY]', '').strip() if len(parts) > 1 else report_out[:500]
+    sub_parts = parts[1].split('[SALES CHALLENGE LIST]') if len(parts) > 1 else ["", ""]
+    macro_text = sub_parts[0].strip() if len(sub_parts) > 0 else ""
+    challenges_text = sub_parts[1].strip() if len(sub_parts) > 1 else ""
+
+    # 获取大盘核心基础总量 
+    cy_total = df_cy[bv_col].sum()
+    py_total = df_py[bv_col].sum()
+    cy_h = df_cy['HN'].sum()
+    py_h = df_py['HN'].sum()
+    
+    cy_adr = cy_total / cy_h if cy_h > 0 else 0
+    py_adr = py_total / py_h if py_h > 0 else 0
+    
     var_total = cy_total - py_total
     pct_total = (var_total / py_total * 100) if py_total > 0 else 0.0
+    pct_h = (cy_h - py_h) / py_h * 100 if py_h > 0 else 0.0
+    pct_adr = (cy_adr - py_adr) / py_adr * 100 if py_adr > 0 else 0.0
 
     # =============================================================
     # 📋 SLIDE 1: 大盘核心复盘与战区 Pace 矩阵
     # =============================================================
     slide1 = prs.slides.add_slide(blank_layout)
-    
-    # 绘制 Sand 质感底色块（营造度假感的呼吸背景）
     bg = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
     bg.fill.solid(); bg.fill.fore_color.rgb = CM_SAND; bg.line.fill.background()
 
-    # 刊头大标题
-    title_box = slide1.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
-    p = title_box.text_frame.paragraphs[0]
-    apply_text_styling(p, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
-    p.text = "EXECUTIVE OMNI PERFORMANCE & STRATEGIC ZONE PACE"
+    # ✅ Requirement 2: Action Title
+    action_verb = "GROWTH" if pct_total >= 0 else "DECLINE"
+    title_box = slide1.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.8))
+    apply_text_styling(title_box.text_frame.paragraphs[0], 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    title_box.text_frame.paragraphs[0].text = f"OMNI-CHANNEL PACE SHOWS {abs(pct_total):.1f}% YOY {action_verb}"
 
-    # 顶置核心数据卡片大方块 (CY / Variance)
-    card_box = slide1.shapes.add_textbox(Inches(0.6), Inches(1.2), Inches(7.5), Inches(1.2))
-    tf_card = card_box.text_frame
-    p_card_num = tf_card.paragraphs[0]
-    apply_text_styling(p_card_num, 'Arial', 32, bold=True, color_rgb=CM_NAVY)
-    p_card_num.text = f"{cy_total:.2f} M€"
-    
-    p_card_lbl = tf_card.add_paragraph()
-    apply_text_styling(p_card_lbl, 'Georgia', 12, italic=True, color_rgb=CM_TERRACOTTA)
-    p_card_lbl.text = f"Group OTB Volume  |  YoY Var: {var_total:+.2f} M€ ({pct_total:+.1f}%)"
+    # ✅ Requirement 3: Context bar
+    ctx_box = slide1.shapes.add_textbox(Inches(0.4), Inches(0.7), Inches(12.5), Inches(0.4))
+    ctx_str = f"Market: {ctx_dict['market']}  |  Consumption: {ctx_dict['cons']}  |  Sales: {ctx_dict['sales']}  |  Currency: {ctx_dict['curr']}"
+    apply_text_styling(ctx_box.text_frame.paragraphs[0], 'Georgia', 11, italic=True, color_rgb=CM_TERRACOTTA)
+    ctx_box.text_frame.paragraphs[0].text = ctx_str
 
-    # 下半区：绘制 Booking Pace by Destination Type 矩阵表
-    dest_df = strat_matrix.groupby('Strat_Zone')[['CY_M', 'PY_M', 'Variance_M']].sum().reset_index()
-    left, top, width, height = Inches(0.6), Inches(2.6), Inches(7.5), Inches(4.3)
-    t_shape1 = slide1.shapes.add_table(len(dest_df)+1, 4, left, top, width, height)
-    table1 = t_shape1.table
-    
-    headers1 = ["Strategic Zone", "CY (M€)", "PY (M€)", "Variance"]
-    for i, h in enumerate(headers1):
-        cell = table1.cell(0, i)
-        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
-        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+    # ✅ Requirement 3: 3 Metric Cards
+    def draw_card(slide, x, title, val_c, val_p, pct):
+        box = slide.shapes.add_textbox(x, Inches(1.3), Inches(2.3), Inches(1.0))
+        tf = box.text_frame
+        apply_text_styling(tf.paragraphs[0], 'Arial', 11, bold=True, color_rgb=CM_NAVY)
+        tf.paragraphs[0].text = title
+        p2 = tf.add_paragraph()
+        apply_text_styling(p2, 'Arial', 20, bold=True, color_rgb=CM_NAVY)
+        p2.text = f"{val_c}"
+        p3 = tf.add_paragraph()
+        c_rgb = CM_SAGE if pct >= 0 else CM_TERRACOTTA
+        apply_text_styling(p3, 'Arial', 10, color_rgb=c_rgb)
+        p3.text = f"PY: {val_p} ({pct:+.1f}%)"
 
-    for r_idx, row in dest_df.iterrows():
-        table1.cell(r_idx+1, 0).text = str(row['Strat_Zone'])
-        table1.cell(r_idx+1, 1).text = f"{row['CY_M']:.2f}"
-        table1.cell(r_idx+1, 2).text = f"{row['PY_M']:.2f}"
-        table1.cell(r_idx+1, 3).text = f"{row['Variance_M']:+.2f}"
-        for col_idx in range(4):
-            c = table1.cell(r_idx+1, col_idx)
-            c.fill.solid(); c.fill.fore_color.rgb = CM_WHITE
-            p_cell = c.text_frame.paragraphs[0]
-            apply_text_styling(p_cell, 'Arial', 10, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx==0 else PP_ALIGN.RIGHT)
+    draw_card(slide1, Inches(0.4), "Paced Volume (M)", f"{cy_total/1e6:.2f}", f"{py_total/1e6:.2f}", pct_total)
+    draw_card(slide1, Inches(2.9), "Paced HN (k)", f"{cy_h/1e3:.1f}", f"{py_h/1e3:.1f}", pct_h)
+    draw_card(slide1, Inches(5.4), "Current ADR", f"{cy_adr:,.0f}", f"{py_adr:,.0f}", pct_adr)
 
-    # 右侧对流舱：Tavily 联网情报与精简归因
-    intel_box = slide1.shapes.add_textbox(Inches(8.5), Inches(1.2), Inches(4.2), Inches(5.7))
-    tf_intel = intel_box.text_frame
-    tf_intel.word_wrap = True
+    # ✅ Requirement 3: Bar Chart (Booking Pace by Dest Type)
+    chart_data1 = CategoryChartData()
+    dest_cy = df_cy.groupby('Strat_Zone')[bv_col].sum() / 1e6
+    dest_py = df_py.groupby('Strat_Zone')[bv_col].sum() / 1e6
+    zones = list(set(dest_cy.index) | set(dest_py.index))
+    chart_data1.categories = zones
+    chart_data1.add_series('CY OTB', [dest_cy.get(z, 0) for z in zones])
+    chart_data1.add_series('PY OTB', [dest_py.get(z, 0) for z in zones])
     
-    p_int_t = tf_intel.paragraphs[0]
-    apply_text_styling(p_int_t, 'Arial', 12, bold=True, color_rgb=CM_TERRACOTTA)
-    p_int_t.text = "🚨 LIVE TAVILY INTEL & ATTRIBUTION"
+    ch1 = slide1.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.4), Inches(2.5), Inches(7.3), Inches(4.5), chart_data1).chart
+    ch1.has_legend = True; ch1.legend.position = XL_LEGEND_POSITION.TOP
+    set_chart_series_color(ch1.series[0], CM_NAVY)
+    set_chart_series_color(ch1.series[1], CM_SAGE)
+
+    # ✅ Requirement 3: Executive Summary & Attribution (AI Text)
+    summary_box = slide1.shapes.add_textbox(Inches(8.0), Inches(1.3), Inches(5.0), Inches(5.7))
+    tf_sum = summary_box.text_frame; tf_sum.word_wrap = True
+    apply_text_styling(tf_sum.paragraphs[0], 'Arial', 13, bold=True, color_rgb=CM_TERRACOTTA)
+    tf_sum.paragraphs[0].text = "EXECUTIVE SUMMARY & ATTRIBUTION"
     
-    # 提取 Tavily 情报的核心脱水总结
-    intel_lines = [line.strip() for line in search_intel_str.split('\n') if "摘要:" in line or "信号源:" in line][:5]
-    if not intel_lines: intel_lines = ["• 宏观经济走势呈现中产消费分化，散客长线预订锁单周期显著拉长。", "• 核心航线运力逐步释放，大交通通道红利正向下游度假村传导。"]
-    
-    for line in intel_lines:
-        p_line = tf_intel.add_paragraph()
-        apply_text_styling(p_line, 'Georgia', 10, italic=True, color_rgb=CM_NAVY)
-        p_line.text = line[:80] + "..." if len(line)>80 else line
-        p_line.space_before = Pt(8)
+    for line in exec_summary_text.split('\n'):
+        if line.strip():
+            p = tf_sum.add_paragraph()
+            apply_text_styling(p, 'Georgia', 11, color_rgb=CM_NAVY)
+            p.text = line.strip()
+            p.space_before = Pt(8)
 
     # =============================================================
     # 🏔️ SLIDE 2: 度假村级效能大盘 (By Resort Dashboard)
     # =============================================================
     slide2 = prs.slides.add_slide(blank_layout)
     
-    title_box2 = slide2.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    title_box2 = slide2.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.8))
     p2 = title_box2.text_frame.paragraphs[0]
     apply_text_styling(p2, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
-    p2.text = "RESORT-LEVEL PERFORMANCE MATRIX INDICATORS"
+    p2.text = "RESORT PERFORMANCE MATRIX BY STRATEGIC ZONE" # ✅ Action title styled
 
-    # 动态渲染 Resort Performance Table
-    r_rows, r_cols = min(12, len(resort_matrix) + 1), 6  # 限制最大行数防止溢出页面
-    left, top, width, height = Inches(0.6), Inches(1.4), Inches(12.133), Inches(5.3)
-    t_shape2 = slide2.shapes.add_table(r_rows, r_cols, left, top, width, height)
+    # ✅ Requirement 4: Resort Performance by Dest Type with Totals
+    # Grouping Data
+    df_cy_res = df_cy.groupby(['Strat_Zone', 'Resort']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
+    df_py_res = df_py.groupby(['Strat_Zone', 'Resort']).agg({bv_col:'sum', 'HN':'sum'}).reset_index()
+    res_m = pd.merge(df_cy_res, df_py_res, on=['Strat_Zone', 'Resort'], how='outer', suffixes=('_CY', '_PY')).fillna(0)
+    
+    r_rows = min(15, len(res_m) + len(res_m['Strat_Zone'].unique()) + 2)
+    t_shape2 = slide2.shapes.add_table(r_rows, 5, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.8))
     table2 = t_shape2.table
-
-    headers2 = ["Strategic Zone", "Resort / Pool", "CY (M€)", "PY (M€)", "YoY Var", "Pace Status"]
+    
+    headers2 = ["Strategic Zone", "Resort", "CY Vol (M)", "PY Vol (M)", "YoY Var %"]
     for i, h in enumerate(headers2):
-        cell = table2.cell(0, i)
-        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
-        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+        c = table2.cell(0, i); c.fill.solid(); c.fill.fore_color.rgb = CM_NAVY
+        apply_text_styling(c.text_frame.paragraphs[0], 'Arial', 11, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+        c.text_frame.paragraphs[0].text = h
 
-    # 将清洗后的度假村数据灌入 PPT 表格中
-    for row_idx in range(1, r_rows):
-        src_row = resort_matrix.iloc[row_idx - 1]
-        zone_val = str(src_row.get('Strat_Zone', '-'))
-        res_val = str(src_row.get('Resort', '-'))
-        cy_val = src_row.get(f'{bv_col}_CY', 0.0) / 1e6
-        py_val = src_row.get(f'{bv_col}_PY', 0.0) / 1e6
-        var_val = cy_val - py_val
-        status_val = "🟢 Ahead" if var_val >= 0 else "🔴 Lagging"
+    r_idx = 1
+    for zone in sorted(res_m['Strat_Zone'].unique()):
+        if r_idx >= 14: break
+        z_df = res_m[res_m['Strat_Zone'] == zone].sort_values(f'{bv_col}_CY', ascending=False)
         
-        vals = [zone_val, res_val, f"{cy_val:.2f}M", f"{py_val:.2f}M", f"{var_val:+.2f}M", status_val]
-        for col_idx, v in enumerate(vals):
-            # ✅ 这里修复：改为 row_idx
-            cell = table2.cell(row_idx, col_idx)
-            cell.text = v; cell.fill.solid()
-            # ✅ 这里修复：改为 row_idx 斑马线逻辑
-            cell.fill.fore_color.rgb = CM_SAND if row_idx % 2 == 0 else CM_WHITE
-            p_cell = cell.text_frame.paragraphs[0]
-            apply_text_styling(p_cell, 'Arial', 9, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
+        # Subtotal row
+        sub_cy, sub_py = z_df[f'{bv_col}_CY'].sum(), z_df[f'{bv_col}_PY'].sum()
+        sub_var = (sub_cy - sub_py) / sub_py * 100 if sub_py > 0 else 0
+        c0 = table2.cell(r_idx, 0); c0.fill.solid(); c0.fill.fore_color.rgb = CM_SAND
+        apply_text_styling(c0.text_frame.paragraphs[0], 'Arial', 10, bold=True)
+        c0.text_frame.paragraphs[0].text = f"[{zone}] Subtotal"
+        
+        c2 = table2.cell(r_idx, 2); apply_text_styling(c2.text_frame.paragraphs[0], alignment=PP_ALIGN.RIGHT); c2.text = f"{sub_cy/1e6:.2f}"
+        c3 = table2.cell(r_idx, 3); apply_text_styling(c3.text_frame.paragraphs[0], alignment=PP_ALIGN.RIGHT); c3.text = f"{sub_py/1e6:.2f}"
+        c4 = table2.cell(r_idx, 4); apply_text_styling(c4.text_frame.paragraphs[0], alignment=PP_ALIGN.RIGHT); c4.text = f"{sub_var:+.1f}%"
+        
+        # Color fill for entire subtotal row
+        for col_idx in range(1, 5): 
+            table2.cell(r_idx, col_idx).fill.solid()
+            table2.cell(r_idx, col_idx).fill.fore_color.rgb = CM_SAND
+            
+        r_idx += 1
+        
+        for _, r in z_df.iterrows():
+            if r_idx >= 14: break
+            cb, pb = r[f'{bv_col}_CY'], r[f'{bv_col}_PY']
+            v = (cb - pb) / pb * 100 if pb > 0 else 0
+            
+            table2.cell(r_idx, 0).text = zone
+            table2.cell(r_idx, 1).text = r['Resort']
+            table2.cell(r_idx, 2).text = f"{cb/1e6:.2f}"
+            table2.cell(r_idx, 3).text = f"{pb/1e6:.2f}"
+            table2.cell(r_idx, 4).text = f"{v:+.1f}%"
+            
+            for col_idx in range(5):
+                p_cell = table2.cell(r_idx, col_idx).text_frame.paragraphs[0]
+                apply_text_styling(p_cell, 'Arial', 9, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
+            r_idx += 1
 
     # =============================================================
     # 📈 SLIDE 3: 累积推进轨迹审计 (Cumulative Pacing Trajectory)
     # =============================================================
     slide3 = prs.slides.add_slide(blank_layout)
     
-    title_box3 = slide3.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    title_box3 = slide3.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.8))
     p3 = title_box3.text_frame.paragraphs[0]
     apply_text_styling(p3, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
-    p3.text = "CUMULATIVE PACING TRAJECTORY AUDIT"
+    p3.text = "CUMULATIVE PACING TRAJECTORY AUDIT" # ✅ Action title
 
-    # 左右双舱设计
-    node_box = slide3.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(5.5), Inches(5.0))
-    tf_node = node_box.text_frame
-    tf_node.word_wrap = True
-    
-    p_n1 = tf_node.paragraphs[0]
-    apply_text_styling(p_n1, 'Arial', 14, bold=True, color_rgb=CM_TERRACOTTA)
-    p_n1.text = "🔥 Critical Trajectory Milestones"
-    
-    milestones = [
-        f"• Global OTB Velocity Ratio: {pct_total:+.1f}% Growth Profile",
-        "• Peak Booking Accumulation Phase: Front-loaded locking detected",
-        f"• Maximum Volume Variance Pool: Domestic PAI Driven",
-        "• Core Drag Risk Zone Portfolio: Overseas Snow Dragging Down",
-        "• Systemic Strategy Target: Structural Re-balancing Required"
-    ]
-    for m in milestones:
-        p_m = tf_node.add_paragraph()
-        apply_text_styling(p_m, 'Georgia', 11, color_rgb=CM_NAVY)
-        p_m.text = m; p_m.space_before = Pt(14)
+    # ✅ Requirement 5: Trajectory Line Chart
+    chart_data3 = CategoryChartData()
+    if curve_data is not None and not curve_data.empty:
+        cw = curve_data.resample('W-MON', on='Sales_Date').max().reset_index()
+        chart_data3.categories = cw['Sales_Date'].dt.strftime('%b %d')
+        chart_data3.add_series('CY OTB', cw['CY_M'].tolist())
+        chart_data3.add_series('PY OTB', cw['PY_M'].tolist())
+    else:
+        chart_data3.categories = ['W1', 'W2']; chart_data3.add_series('CY OTB', [0,0]); chart_data3.add_series('PY OTB', [0,0])
 
-    # 右侧面板：财务精炼分析框
-    analysis_box = slide3.shapes.add_textbox(Inches(6.8), Inches(1.6), Inches(5.9), Inches(5.0))
-    tf_analysis = analysis_box.text_frame
-    tf_analysis.word_wrap = True
-    
-    p_a1 = tf_analysis.paragraphs[0]
-    apply_text_styling(p_a1, 'Arial', 12, bold=True, color_rgb=CM_NAVY)
-    p_a1.text = "📋 CUMULATIVE PACING DIAGNOSTICS"
-    
-    p_a2 = tf_analysis.add_paragraph()
-    apply_text_styling(p_a2, 'Georgia', 11, italic=True, color_rgb=CM_NAVY)
-    p_a2.text = "数据模型穿透显示：本周期的滚动推进曲线（Cumulative Booking Curve）在前半程与去年历史同期基本对齐，但随后的极早鸟锁单释放（Early-Bird Long-Lock）呈现两极分化形态。国内平替产品在手份额极其激进，而远途跨洲长线（IZ）因大交通决策窗口后移出现技术性局部坍塌。建议后续通过动态调整起价机制，对冲去中心化渠道的尾市蚕食。"
-    p_a2.space_before = Pt(12)
+    ch3 = slide3.shapes.add_chart(XL_CHART_TYPE.LINE, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.8), chart_data3).chart
+    ch3.has_legend = True; ch3.legend.position = XL_LEGEND_POSITION.TOP
+    ch3.series[0].format.line.color.rgb = CM_NAVY; ch3.series[0].format.line.width = Pt(3)
+    ch3.series[1].format.line.color.rgb = CM_SAGE; ch3.series[1].format.line.dash_style = 4 # Dashed
 
     # =============================================================
     # 🏢 SLIDE 4: 分销渠道穿透与利润率审计 (Channel Structural Deep-dive)
     # =============================================================
     slide4 = prs.slides.add_slide(blank_layout)
     
-    title_box4 = slide4.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    title_box4 = slide4.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.8))
     p4 = title_box4.text_frame.paragraphs[0]
     apply_text_styling(p4, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
-    p4.text = "CHANNEL STRUCTURE & MARGIN QUALITY AUDIT"
+    p4.text = "CHANNEL STRUCTURE & PORTFOLIO VARIANCE BY ZONE"
 
-    # 构建精简版分销交叉矩阵 (Direct vs Indirect)
-    ch_rows, ch_cols = min(10, len(channel_matrix)+1), 5
-    left, top, width, height = Inches(0.6), Inches(1.5), Inches(12.133), Inches(4.5)
-    t_shape4 = slide4.shapes.add_table(ch_rows, ch_cols, left, top, width, height)
-    table4 = t_shape4.table
-
-    headers4 = ["Segment", "Channel Group", "Current Period BV", "Previous Period BV", "YoY Change %"]
-    for i, h in enumerate(headers4):
-        cell = table4.cell(0, i)
-        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
-        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
-
-    for r_idx in range(1, ch_rows):
-        src_row = channel_matrix.iloc[r_idx - 1]
-        seg_val = str(src_row.get('Segment', '-'))
-        ch_val = str(src_row.get('Channel_Group', '-'))
-        cy_bv = src_row.get(f'{bv_col}_CY', 0.0) / 1e6
-        py_bv = src_row.get(f'{bv_col}_PY', 0.0) / 1e6
-        chg_pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0.0
+    # ✅ Requirement 6: Channel Structure Chart (Bar chart mapping Strat_Port changes by Zone)
+    ch_cy = df_cy.groupby(['Strat_Zone', 'Strat_Port'])[bv_col].sum()
+    ch_py = df_py.groupby(['Strat_Zone', 'Strat_Port'])[bv_col].sum()
+    
+    chart_data4 = CategoryChartData()
+    z_list = sorted(list(set([z for z, _ in ch_cy.index] + [z for z, _ in ch_py.index])))
+    p_list = sorted(list(set([p for _, p in ch_cy.index] + [p for _, p in ch_py.index])))
+    
+    chart_data4.categories = z_list
+    colors_arr = [CM_NAVY, CM_TERRACOTTA, CM_SAFFRON, CM_SAGE, RGBColor(100,100,100)]
+    
+    for idx, port in enumerate(p_list):
+        vals = []
+        for z in z_list:
+            c_val, p_val = ch_cy.get((z, port), 0), ch_py.get((z, port), 0)
+            v = (c_val - p_val) / p_val * 100 if p_val > 0 else 0
+            vals.append(v)
+        chart_data4.add_series(port, vals)
         
-        vals = [seg_val, ch_val, f"{cy_bv:.2f} M€", f"{py_bv:.2f} M€", f"{chg_pct:+.1f}%"]
-        for col_idx, v in enumerate(vals):
-            # 🚀 已将 row_idx 修正为当前循环的 r_idx
-            cell = table4.cell(r_idx, col_idx) 
-            cell.text = v; cell.fill.solid()
-            
-            # 高亮标出失血点与增长引擎
-            if col_idx == 4 and chg_pct < -5.0:
-                cell.fill.fore_color.rgb = RGBColor(254, 237, 222)  # 浅红高亮失血区
-            elif col_idx == 4 and chg_pct > 10.0:
-                cell.fill.fore_color.rgb = RGBColor(230, 245, 230)  # 浅绿高亮增长引擎
-            else:
-                cell.fill.fore_color.rgb = CM_WHITE
-                
-            p_cell = cell.text_frame.paragraphs[0]
-            apply_text_styling(p_cell, 'Arial', 10, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
-
-    note_box = slide4.shapes.add_textbox(Inches(0.6), Inches(6.3), Inches(12.0), Inches(0.5))
-    p_note = note_box.text_frame.paragraphs[0]
-    apply_text_styling(p_note, 'Arial', 10, italic=True, color_rgb=CM_TERRACOTTA)
-    p_note.text = "⚠️ Margin Dilution Alert: 红色高亮区域代表前端佣金高企的去中心化渠道，正在严重吞噬最终的 Sales Contribution，需强行控制其变动获取成本。"
+    ch4 = slide4.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(0.4), Inches(1.2), Inches(12.5), Inches(5.8), chart_data4).chart
+    ch4.has_legend = True; ch4.legend.position = XL_LEGEND_POSITION.TOP
+    for idx, s in enumerate(ch4.series):
+        set_chart_series_color(s, colors_arr[idx % len(colors_arr)])
 
     # =============================================================
     # 🎯 SLIDE 5: 战略行动备忘与销售质询 (Advisory & Questions)
@@ -672,43 +635,40 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
     side_bar = slide5.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.8), 0, Inches(0.533), prs.slide_height)
     side_bar.fill.solid(); side_bar.fill.fore_color.rgb = CM_TERRACOTTA; side_bar.line.fill.background()
 
-    title_box5 = slide5.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(11.5), Inches(0.8))
+    title_box5 = slide5.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(11.5), Inches(0.8))
     p5 = title_box5.text_frame.paragraphs[0]
     apply_text_styling(p5, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
-    p5.text = "STRATEGIC ADVISORY MEMO & SALES CHALLENGE LIST"
+    p5.text = "STRATEGIC MACRO CONTEXT & SALES CHALLENGE LIST" # ✅ Action Title
 
-    adv_box = slide5.shapes.add_textbox(Inches(0.6), Inches(1.4), Inches(11.5), Inches(5.5))
+    adv_box = slide5.shapes.add_textbox(Inches(0.4), Inches(1.2), Inches(12.0), Inches(5.8))
     tf_adv = adv_box.text_frame
     tf_adv.word_wrap = True
 
+    # ✅ Requirement 7: Macro Context & Sales Challenge generated by AI
     p_h1 = tf_adv.paragraphs[0]
     apply_text_styling(p_h1, 'Arial', 14, bold=True, color_rgb=CM_NAVY)
-    p_h1.text = "★ Tavily Network Intelligence & Attribution"
+    p_h1.text = "🌍 MACRO ECONOMIC & GEOPOLITICAL CONTEXT"
     
-    p_b1 = tf_adv.add_paragraph()
-    apply_text_styling(p_b1, 'Georgia', 11, color_rgb=CM_NAVY)
-    p_b1.text = "• 航班大交通红利释放：根据实时网络检索，亚太直航增班与燃油税高位回落，正成为推进出境村（ESAP SUN）大交通运力释放的直接通道红利，建议营销端前置保价打包策略。\n• 地缘要素虹吸效应：地缘政治信任赤字及宏观情绪对特定战区（如日本山岳）产生阶段性长锁定压制，滑向“极致性价比”的中产阶层正加速国内山岳避暑营（GC Mountain）的平替性逆势高增长。"
-    p_b1.space_before = Pt(6)
+    for line in macro_text.split('\n'):
+        if line.strip():
+            p = tf_adv.add_paragraph()
+            apply_text_styling(p, 'Georgia', 12, color_rgb=CM_NAVY)
+            p.text = line.strip()
+            p.space_before = Pt(6)
 
-    p_h2 = tf_adv.add_paragraph()
-    apply_text_styling(p_h2, 'Arial', 14, bold=True, color_rgb=CM_NAVY)
-    p_h2.text = "★ Counter-OTA Non-Standard Inventory Strategy"
-    p_h2.space_before = Pt(16)
+    p_br = tf_adv.add_paragraph(); p_br.space_before = Pt(20)
     
-    p_b2 = tf_adv.add_paragraph()
-    apply_text_styling(p_b2, 'Georgia', 11, color_rgb=CM_NAVY)
-    p_b2.text = "• 价值/库存交换红利：严禁直接采取一刀切降低核心OTA（如携程）佣金率的业余财务手段，应向渠道提供独家非标专属体验包，以固定长尾库存交换强行索要核心搜索页面的【免费置顶曝光位】；同时启动私域盲盒预售，实现比价熔断。"
-    p_b2.space_before = Pt(6)
-
     p_h3 = tf_adv.add_paragraph()
     apply_text_styling(p_h3, 'Arial', 14, bold=True, color_rgb=CM_TERRACOTTA)
-    p_h3.text = "🔥 Critical Sales Team Challenge List (下周开会核心质询项)"
-    p_h3.space_before = Pt(18)
+    p_h3.text = "🔥 CRITICAL SALES CHALLENGE LIST"
+    p_h3.space_before = Pt(10)
     
-    p_b3 = tf_adv.add_paragraph()
-    apply_text_styling(p_b3, 'Arial', 11, bold=True, color_rgb=CM_NAVY)
-    p_b3.text = "1. 北大湖(Beidahu) 12月逻辑质询：在手Booking实现了100%的强劲翻倍增长，为何销售提报的REF26仅设定为1.4 M€（低于去年实际完成的1.6 M€）？背后隐藏的保守逻辑及防御理由究竟是什么？\n2. Tomamu 12月乐观偏差质询：面对在手订单同比深度重挫40%的严峻跌幅，且外部政治赤字尚未缓解的确定性背景下，销售团队凭何论证未来有能力完成单月超0.5 M€的尾市补单奇迹？\n3. 结构性失血止血时间表：针对巴厘岛火灾后的运力重建、民丹岛高净值私域客群锁单瓶颈，销售部门能否在下周二前拿出量化至周度的“竞品分流截桩方案”？"
-    p_b3.space_before = Pt(6)
+    for line in challenges_text.split('\n'):
+        if line.strip():
+            p = tf_adv.add_paragraph()
+            apply_text_styling(p, 'Arial', 12, bold=True, color_rgb=CM_NAVY)
+            p.text = line.strip()
+            p.space_before = Pt(6)
 
     binary_output = io.BytesIO()
     prs.save(binary_output)
@@ -719,6 +679,74 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
 # =================================================================
 # --- 6. Main Operational UI Flow ---
 # =================================================================
+# ✅ Hoisted `get_curve_m` up to make it globally accessible for PPTX Generation
+def get_curve_m(idf, cy_y, mode, seas, cs, ce, se, bv_col_name):
+    d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
+    # Using safe_offset to handle py dates
+    def safe_off(d, yrs):
+        if not isinstance(d, datetime.date): return None
+        try: return d.replace(year=d.year + yrs)
+        except ValueError: return d + datetime.timedelta(days=365 * yrs)
+        
+    d_py = apply_filters(idf, mode, cy_y-1, seas, safe_off(cs, -1), safe_off(ce, -1), datetime.date(2000,1,1), se-datetime.timedelta(days=365))
+    
+    c_d = d_cy.groupby('Sales_Date')[bv_col_name].sum().reset_index()
+    p_d = d_py.groupby('Sales_Date')[bv_col_name].sum().reset_index()
+    p_d['Sales_Date'] = p_d['Sales_Date'] + pd.DateOffset(years=1)
+    if c_d.empty and p_d.empty: return None
+    tline = pd.date_range(start=min(c_d['Sales_Date'].min() if not c_d.empty else pd.to_datetime(se), p_d['Sales_Date'].min() if not p_d.empty else pd.to_datetime(se)), end=pd.to_datetime(se))
+    df_t = pd.DataFrame({'Sales_Date': tline})
+    c_d = pd.merge(df_t, c_d, on='Sales_Date', how='left').fillna(0)
+    p_d = pd.merge(df_t, p_d, on='Sales_Date', how='left').fillna(0)
+    res = df_t.copy()
+    
+    res['CY_inc_abs'] = c_d[bv_col_name]
+    res['PY_inc_abs'] = p_d[bv_col_name]
+    res['CY_abs'] = res['CY_inc_abs'].cumsum()
+    res['PY_abs'] = res['PY_inc_abs'].cumsum()
+    res['Gap_abs'] = res['CY_abs'] - res['PY_abs']
+    
+    res['CY_inc_M'] = res['CY_inc_abs'] / 1_000_000
+    res['PY_inc_M'] = res['PY_inc_abs'] / 1_000_000
+    res['CY_M'] = res['CY_abs'] / 1_000_000
+    res['PY_M'] = res['PY_abs'] / 1_000_000
+    res['Gap_M'] = res['Gap_abs'] / 1_000_000
+    return res
+
+def apply_filters(idf, mode, y, seas, cs, ce, ss, se):
+    d = idf.copy()
+    d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
+    if mode == "Quick Select (Year/Season)":
+        if y is not None: d = d[d['Year'] == y]
+        if seas and seas != "All Year":
+            m_range = [1,6] if "S1" in seas else [7,12]
+            d = d[d['Month_Num'].between(*m_range)]
+    else: 
+        if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+        
+    if 'sel_mkt' in globals() and sel_mkt: d = d[d['Market'].isin(sel_mkt)]
+    if 'sel_ta' in globals() and sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
+    if 'sel_dest' in globals() and sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
+    if 'sel_resort' in globals() and sel_resort: d = d[d['Resort'].isin(sel_resort)]
+    return d
+
+def apply_filters_no_mkt(idf, mode, y, seas, cs, ce, ss, se):
+    d = idf.copy()
+    d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
+    if mode == "Quick Select (Year/Season)":
+        if y is not None: d = d[d['Year'] == y]
+        if seas and seas != "All Year":
+            m_range = [1,6] if "S1" in seas else [7,12]
+            d = d[d['Month_Num'].between(*m_range)]
+    else: 
+        if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
+        
+    if 'sel_ta' in globals() and sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
+    if 'sel_dest' in globals() and sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
+    if 'sel_resort' in globals() and sel_resort: d = d[d['Resort'].isin(sel_resort)]
+    return d
+
+
 if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv']):
     df = load_and_clean(uploaded_file)
     
@@ -773,39 +801,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         try: py_start, py_end = start_date.replace(year=start_date.year-1), end_date.replace(year=end_date.year-1)
         except: py_start, py_end = start_date - datetime.timedelta(days=365), end_date - datetime.timedelta(days=365)
 
-    def apply_filters(idf, mode, y, seas, cs, ce, ss, se):
-        d = idf.copy()
-        d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
-        if mode == "Quick Select (Year/Season)":
-            if y is not None: d = d[d['Year'] == y]
-            if seas and seas != "All Year":
-                m_range = [1,6] if "S1" in seas else [7,12]
-                d = d[d['Month_Num'].between(*m_range)]
-        else: 
-            if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
-            
-        if sel_mkt: d = d[d['Market'].isin(sel_mkt)]
-        if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
-        if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
-        if sel_resort: d = d[d['Resort'].isin(sel_resort)]
-        return d
-        
-    def apply_filters_no_mkt(idf, mode, y, seas, cs, ce, ss, se):
-        d = idf.copy()
-        d = d[(d['Sales_Date'].dt.date >= ss) & (d['Sales_Date'].dt.date <= se)]
-        if mode == "Quick Select (Year/Season)":
-            if y is not None: d = d[d['Year'] == y]
-            if seas and seas != "All Year":
-                m_range = [1,6] if "S1" in seas else [7,12]
-                d = d[d['Month_Num'].between(*m_range)]
-        else: 
-            if cs and ce: d = d[(d['Cons_Date'].dt.date >= cs) & (d['Cons_Date'].dt.date <= ce)]
-            
-        if sel_ta: d = d[d['TA_Group'].isin(sel_ta)]
-        if sel_dest: d = d[d['Dest_Type'].isin(sel_dest)]
-        if sel_resort: d = d[d['Resort'].isin(sel_resort)]
-        return d
-
     actual_y = sel_y if cons_mode.startswith("Quick") and sel_y is not None else (c_start.year if c_start else datetime.date.today().year)
     
     df_cy_raw = apply_filters(df, cons_mode, sel_y if cons_mode.startswith("Quick") else None, season if cons_mode.startswith("Quick") else None, c_start, c_end, start_date, end_date)
@@ -815,6 +810,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     df_cy_tags = assign_strategic_tags(sanitize_channels(df_cy_raw[~df_cy_raw['Segment'].str.lower().str.contains('mission', na=False)]))
     df_py_tags = assign_strategic_tags(sanitize_channels(df_py_raw[~df_py_raw['Segment'].str.lower().str.contains('mission', na=False)]))
     df_ppy_tags = assign_strategic_tags(sanitize_channels(df_ppy_raw[~df_ppy_raw['Segment'].str.lower().str.contains('mission', na=False)]))
+
+    # Calculate global_curve_data globally so all tabs can use it
+    global_curve_data = get_curve_m(df, sel_y if cons_mode.startswith("Quick") else c_start.year, cons_mode, season, c_start, c_end, end_date, bv_col)
 
     st.markdown(f"<div class='header-box'>ClubMed Executive Intelligence Hub</div>", unsafe_allow_html=True)
     mkt_txt = ", ".join(sel_mkt) if sel_mkt else "All Markets"
@@ -1044,36 +1042,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
     # 🎢 TAB 2: TRAJECTORY & VELOCITY
     # =================================================================
     with tab2:
-        def get_curve_m(idf, cy_y, mode, seas, cs, ce, se):
-            d_cy = apply_filters(idf, mode, cy_y, seas, cs, ce, datetime.date(2000,1,1), se)
-            d_py = apply_filters(idf, mode, cy_y-1, seas, safe_offset(cs, -1), safe_offset(ce, -1), datetime.date(2000,1,1), se-datetime.timedelta(days=365))
-            
-            c_d = d_cy.groupby('Sales_Date')[bv_col].sum().reset_index()
-            p_d = d_py.groupby('Sales_Date')[bv_col].sum().reset_index()
-            p_d['Sales_Date'] = p_d['Sales_Date'] + pd.DateOffset(years=1)
-            if c_d.empty and p_d.empty: return None
-            tline = pd.date_range(start=min(c_d['Sales_Date'].min() if not c_d.empty else pd.to_datetime(se), p_d['Sales_Date'].min() if not p_d.empty else pd.to_datetime(se)), end=pd.to_datetime(se))
-            df_t = pd.DataFrame({'Sales_Date': tline})
-            c_d = pd.merge(df_t, c_d, on='Sales_Date', how='left').fillna(0)
-            p_d = pd.merge(df_t, p_d, on='Sales_Date', how='left').fillna(0)
-            res = df_t.copy()
-            
-            res['CY_inc_abs'] = c_d[bv_col]
-            res['PY_inc_abs'] = p_d[bv_col]
-            res['CY_abs'] = res['CY_inc_abs'].cumsum()
-            res['PY_abs'] = res['PY_inc_abs'].cumsum()
-            res['Gap_abs'] = res['CY_abs'] - res['PY_abs']
-            
-            res['CY_inc_M'] = res['CY_inc_abs'] / 1_000_000
-            res['PY_inc_M'] = res['PY_inc_abs'] / 1_000_000
-            res['CY_M'] = res['CY_abs'] / 1_000_000
-            res['PY_M'] = res['PY_abs'] / 1_000_000
-            res['Gap_M'] = res['Gap_abs'] / 1_000_000
-            return res
-            
-        curve_data = get_curve_m(df, sel_y if cons_mode.startswith("Quick") else c_start.year, cons_mode, season, c_start, c_end, end_date)
-        st.plotly_chart(draw_pacing_curve_m(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
-        st.plotly_chart(draw_weekly_pace_chart_m(curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
+        st.plotly_chart(draw_pacing_curve_m(global_curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
+        st.plotly_chart(draw_weekly_pace_chart_m(global_curve_data, cy_label, py_label, curr_sym, chart_info), use_container_width=True)
 
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Rolling 15-Days Sales Momentum (CY vs PY vs PPY)</h3>", unsafe_allow_html=True)
@@ -1276,9 +1246,6 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         fig_adr_comp.update_yaxes(title_text="ADR")
         st.plotly_chart(fig_adr_comp, use_container_width=True)
 
-        # ---------------------------------------------------------------------------------
-        # 🌟 CORE ENGINE REPLACEMENT: Dynamic Pickup Forecast Matrix (FIT/MICE Decoupled)
-        # ---------------------------------------------------------------------------------
         st.markdown("---")
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>Dynamic Baseline Forecast Matrix</h3>", unsafe_allow_html=True)
         
@@ -1565,13 +1532,11 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 st.error("🔑 无法初始化 Tavily 引擎，请检查 TAVILY_API_KEY 环境变量配置。")
                 st.stop()
 
-            # 📌 1. 后台 Python 自动执行数据硬审计
             cy_total = strat_matrix[f'{bv_col}_CY'].sum()
             py_total = strat_matrix[f'{bv_col}_PY'].sum()
             var_total = cy_total - py_total
             pct_total = (var_total / py_total * 100) if py_total > 0 else 0.0
             
-            # 锁定最大出血点和最大增长点 (剔除总数行)
             valid_rows = strat_matrix[strat_matrix['Strat_Zone'] != 'GLOBAL OMNI TOTAL']
             
             if not valid_rows.empty:
@@ -1580,43 +1545,38 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 drag_zone = max_drag_row['Strat_Zone']
                 grow_zone = max_grow_row['Strat_Zone']
             else:
-                drag_zone = "出境度假村"
-                grow_zone = "国内度假村"
+                drag_zone = "Overseas Zone"
+                grow_zone = "Domestic Zone"
             
-            # 📌 2. 仪式感流式滚动提示窗
             status_placeholder = st.empty()
             
             with status_placeholder.container():
-                st.info(f"📊 内部财务审计完毕：大盘差异 {var_total/1e6:+.2f}M{curr_sym}。已锁定核心病灶区 【{drag_zone}】 与增长引擎区 【{grow_zone}】...")
+                st.info(f"📊 Internal Financial Audit in progress... Identified Key Headwind in [{drag_zone}] and Engine in [{grow_zone}]...")
             
-            # 📌 3. 智能化组装“宏观+微观双轨搜索词”
             season_context = cons_desc 
-
-            query_geopolitics = f"{season_context} 中日关系 台湾问题 地缘政治 高市早苗 涉台言论 中国游客 赴日旅游 影响"
-            query_macro_drag = f"{season_context} {drag_zone} 中国游客 旅游签证 消费信心 趋势"
-            query_micro_drag = f"{season_context} {drag_zone} 航班运力 直航增班 机票价格 燃油税"
-            query_macro_grow = f"{season_context} {grow_zone} 旅游 亲子夏令营 避暑 市场调研报告"
+            query_geopolitics = f"{season_context} geopolitical tension travel Japan Taiwan impact"
+            query_macro_drag = f"{season_context} {drag_zone} travel consumer confidence"
+            query_micro_drag = f"{season_context} {drag_zone} flight capacity tickets prices"
+            query_macro_grow = f"{season_context} {grow_zone} tourism market recovery trends"
             
             search_queries = [query_geopolitics, query_macro_drag, query_micro_drag, query_macro_grow]
             
-            # 📌 4. 触发 Tavily 并发集群检索
             search_results_raw = []
             for idx, q in enumerate(search_queries):
                 with status_placeholder.container():
-                    st.spinner(f"✈️ 实时雷达已联网：正在精准检索网络情报 [{idx+1}/{len(search_queries)}]: '{q}' ...")
+                    st.spinner(f"✈️ Live Radar scanning network intel [{idx+1}/{len(search_queries)}]: '{q}' ...")
                 try:
                     res = tavily_client.results(query=q, max_results=2)
                     for r in res:
-                        search_results_raw.append(f"🔍 信号源: {r['title']}\n📝 摘要: {r['content']}\n")
+                        search_results_raw.append(f"Source: {r['title']}\nSummary: {r['content']}\n")
                 except Exception as e:
-                    search_results_raw.append(f"⚠️ 检索失败 '{q}': {e}")
+                    search_results_raw.append(f"Warning: Fetch failed '{q}': {e}")
             
             search_intel_str = "\n".join(search_results_raw)
             
             with status_placeholder.container():
-                st.success("👔 外部情报网络脱水完毕！正在交由 CFO 与销售总监联合撰写最终总裁战略备忘录...")
+                st.success("👔 External intelligence compiled! Passing to Executive AI agent to draft English Presidential Memo...")
             
-            # 📌 5. 拼接最权威置顶的 Grand Total 护栏
             total_header = (
                 f"=== GLOBAL OMNI GRAND TOTAL ===\n"
                 f"CY Total: {cy_total/1e6:.2f}M{curr_sym}\n"
@@ -1626,9 +1586,8 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             )
             matrix_str = total_header + strat_matrix.to_string(index=False)
             
-            # 📌 6. 唤醒模型，吐出字字珠玑的决策报告
             chat_history = []
-            task_prompt = "请将内部财务表格中的每一个异动点，无缝缝合进 Tavily 检索回来的实时运力和宏观经济情报中，完成多维深度归因，并输出具体的战术实战行动方案。"
+            task_prompt = "Generate the executive summary based strictly on the required output structure in English."
             
             report_out = generate_weekly_diagnostics(
                 chart_info, 
@@ -1650,18 +1609,29 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.markdown("#### 📥 Downstream Delivery Output")
             
             with st.spinner("🎨 Generating McKinsey-Grade PPTX Briefing..."):
+                
+                # ✅ Pass explicit ctx_dict
+                ctx_dict = {
+                    "market": mkt_txt,
+                    "cons": cons_desc,
+                    "sales": f"{start_date.strftime('%b %d')} to {end_date.strftime('%b %d')}",
+                    "curr": bv_sel.split(' ')[0]
+                }
+                
                 pptx_data = create_executive_pptx(
                     strat_matrix=strat_matrix, 
                     resort_matrix=t1_m, 
-                    channel_matrix=m_df, 
+                    df_cy=df_cy_tags,
+                    df_py=df_py_tags,
+                    curve_data=global_curve_data,
                     report_out=report_out, 
                     search_intel_str=search_intel_str, 
-                    chart_info=chart_info,
+                    ctx_dict=ctx_dict,
                     bv_col=bv_col
                 )
                 
                 st.download_button(
-                    label="📥 Download McKinsey-Grade PPTX Presentation",
+                    label="📥 Download English McKinsey-Grade PPTX Presentation",
                     data=pptx_data,
                     file_name=f"ClubMed_Executive_Briefing_{datetime.date.today().strftime('%Y%m%d')}.pptx",
                     mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
