@@ -9,3 +9,4 @@ plotly
 duckduckgo-search
 langchain-community
 tavily-python
+python-pptx
