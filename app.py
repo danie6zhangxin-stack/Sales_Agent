@@ -636,7 +636,7 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
         apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
 
     for r_idx in range(1, ch_rows):
-        src_row = channel_matrix.iloc[row_idx - 1]
+        src_row = channel_matrix.iloc[r_idx - 1]
         seg_val = str(src_row.get('Segment', '-'))
         ch_val = str(src_row.get('Channel_Group', '-'))
         cy_bv = src_row.get(f'{bv_col}_CY', 0.0) / 1e6
@@ -645,8 +645,10 @@ def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_ou
         
         vals = [seg_val, ch_val, f"{cy_bv:.2f} M€", f"{py_bv:.2f} M€", f"{chg_pct:+.1f}%"]
         for col_idx, v in enumerate(vals):
-            cell = table4.cell(row_idx, col_idx)
+            # 🚀 已将 row_idx 修正为当前循环的 r_idx
+            cell = table4.cell(r_idx, col_idx) 
             cell.text = v; cell.fill.solid()
+            
             # 高亮标出失血点与增长引擎
             if col_idx == 4 and chg_pct < -5.0:
                 cell.fill.fore_color.rgb = RGBColor(254, 237, 222)  # 浅红高亮失血区
