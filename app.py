@@ -609,7 +609,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             seg_cy_bv, seg_cy_hn = df_s[f'{bv_col}_CY'].sum(), df_s['HN_CY'].sum()
             seg_py_bv, seg_py_hn = df_s[f'{bv_col}_PY'].sum(), df_s['HN_PY'].sum()
             gt_cy_b += seg_cy_bv; gt_cy_h += seg_cy_hn
-            gt_py_b += seg_py_bv; gt_py_h += gt_py_h
+            gt_py_b += seg_py_bv; gt_py_h += seg_py_hn
             
             first_s = True
             for ch in df_s['Channel_Group'].unique():
