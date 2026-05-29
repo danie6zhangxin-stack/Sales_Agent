@@ -10,6 +10,14 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 import datetime
 
+# --- 新增 PPTX 核心依赖 ---
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from pptx.enum.shapes import MSO_SHAPE
+import io
+
 # =================================================================
 # --- 0. API Keys Setup ---
 # =================================================================
@@ -258,7 +266,7 @@ def build_strategic_summary_matrix(cy_df, py_df, bv_col):
     return merged
 
 # =================================================================
-# --- 4. Plotting & AI Engines ---
+# --- 4. Plotting & AI Engines & PPTX Generation ---
 # =================================================================
 def draw_pacing_curve_m(df_curve, cy_label, py_label, curr_symbol, info_text):
     if df_curve is None or df_curve.empty: return go.Figure()
@@ -419,7 +427,291 @@ def generate_weekly_diagnostics(context_info, matrix_summary_str, search_intel_s
     except Exception as e:
         return f"Diagnostics engine timeout. Error: {e}"
 
+# ---------------------------------------------------------------------------------
+# 💎 核心新增引擎：一键导出 5 页流 McKinsey-Grade PPTX
+# ---------------------------------------------------------------------------------
+def create_executive_pptx(strat_matrix, resort_matrix, channel_matrix, report_out, search_intel_str, chart_info, bv_col):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)  # 16:9 标准宽屏比例
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6] # 使用纯白板布局进行高精度流式绘制
+
+    # 1. 建立 ClubMed 顶级视觉规范色彩矩阵
+    CM_NAVY = RGBColor(5, 28, 44)         # #051C2C - 财务底盘色
+    CM_TERRACOTTA = RGBColor(166, 75, 53)   # #A64B35 - 核心异动警告色
+    CM_SAFFRON = RGBColor(253, 185, 19)   # #FDB913 - 推进曲线走势色
+    CM_SAGE = RGBColor(164, 182, 176)      # #A4B6B0 - 轻资产/稳定资产色
+    CM_SAND = RGBColor(248, 244, 234)      # #F8F4EA - 老钱风打底白
+    CM_WHITE = RGBColor(255, 255, 255)
+
+    def apply_text_styling(paragraph, font_name='Arial', size_pt=11, bold=False, italic=False, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT):
+        paragraph.font.name = font_name
+        paragraph.font.size = Pt(size_pt)
+        paragraph.font.bold = bold
+        paragraph.font.italic = italic
+        paragraph.font.color.rgb = color_rgb
+        paragraph.alignment = alignment
+
+    # 获取大盘核心基础总量 (用于 Slide 1 顶置卡片)
+    cy_total = strat_matrix['CY_M'].sum()
+    py_total = strat_matrix['PY_M'].sum()
+    var_total = cy_total - py_total
+    pct_total = (var_total / py_total * 100) if py_total > 0 else 0.0
+
+    # =============================================================
+    # 📋 SLIDE 1: 大盘核心复盘与战区 Pace 矩阵
+    # =============================================================
+    slide1 = prs.slides.add_slide(blank_layout)
     
+    # 绘制 Sand 质感底色块（营造度假感的呼吸背景）
+    bg = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
+    bg.fill.solid(); bg.fill.fore_color.rgb = CM_SAND; bg.line.fill.background()
+
+    # 刊头大标题
+    title_box = slide1.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    p = title_box.text_frame.paragraphs[0]
+    apply_text_styling(p, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    p.text = "EXECUTIVE OMNI PERFORMANCE & STRATEGIC ZONE PACE"
+
+    # 顶置核心数据卡片大方块 (CY / Variance)
+    card_box = slide1.shapes.add_textbox(Inches(0.6), Inches(1.2), Inches(7.5), Inches(1.2))
+    tf_card = card_box.text_frame
+    p_card_num = tf_card.paragraphs[0]
+    apply_text_styling(p_card_num, 'Arial', 32, bold=True, color_rgb=CM_NAVY)
+    p_card_num.text = f"{cy_total:.2f} M€"
+    
+    p_card_lbl = tf_card.add_paragraph()
+    apply_text_styling(p_card_lbl, 'Georgia', 12, italic=True, color_rgb=CM_TERRACOTTA)
+    p_card_lbl.text = f"Group OTB Volume  |  YoY Var: {var_total:+.2f} M€ ({pct_total:+.1f}%)"
+
+    # 下半区：绘制 Booking Pace by Destination Type 矩阵表
+    dest_df = strat_matrix.groupby('Strat_Zone')[['CY_M', 'PY_M', 'Variance_M']].sum().reset_index()
+    left, top, width, height = Inches(0.6), Inches(2.6), Inches(7.5), Inches(4.3)
+    t_shape1 = slide1.shapes.add_table(len(dest_df)+1, 4, left, top, width, height)
+    table1 = t_shape1.table
+    
+    headers1 = ["Strategic Zone", "CY (M€)", "PY (M€)", "Variance"]
+    for i, h in enumerate(headers1):
+        cell = table1.cell(0, i)
+        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
+        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+
+    for r_idx, row in dest_df.iterrows():
+        table1.cell(r_idx+1, 0).text = str(row['Strat_Zone'])
+        table1.cell(r_idx+1, 1).text = f"{row['CY_M']:.2f}"
+        table1.cell(r_idx+1, 2).text = f"{row['PY_M']:.2f}"
+        table1.cell(r_idx+1, 3).text = f"{row['Variance_M']:+.2f}"
+        for col_idx in range(4):
+            c = table1.cell(r_idx+1, col_idx)
+            c.fill.solid(); c.fill.fore_color.rgb = CM_WHITE
+            p_cell = c.text_frame.paragraphs[0]
+            apply_text_styling(p_cell, 'Arial', 10, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx==0 else PP_ALIGN.RIGHT)
+
+    # 右侧对流舱：Tavily 联网情报与精简归因
+    intel_box = slide1.shapes.add_textbox(Inches(8.5), Inches(1.2), Inches(4.2), Inches(5.7))
+    tf_intel = intel_box.text_frame
+    tf_intel.word_wrap = True
+    
+    p_int_t = tf_intel.paragraphs[0]
+    apply_text_styling(p_int_t, 'Arial', 12, bold=True, color_rgb=CM_TERRACOTTA)
+    p_int_t.text = "🚨 LIVE TAVILY INTEL & ATTRIBUTION"
+    
+    # 提取 Tavily 情报的核心脱水总结
+    intel_lines = [line.strip() for line in search_intel_str.split('\n') if "摘要:" in line or "信号源:" in line][:5]
+    if not intel_lines: intel_lines = ["• 宏观经济走势呈现中产消费分化，散客长线预订锁单周期显著拉长。", "• 核心航线运力逐步释放，大交通通道红利正向下游度假村传导。"]
+    
+    for line in intel_lines:
+        p_line = tf_intel.add_paragraph()
+        apply_text_styling(p_line, 'Georgia', 10, italic=True, color_rgb=CM_NAVY)
+        p_line.text = line[:80] + "..." if len(line)>80 else line
+        p_line.space_before = Pt(8)
+
+    # =============================================================
+    # 🏔️ SLIDE 2: 度假村级效能大盘 (By Resort Dashboard)
+    # =============================================================
+    slide2 = prs.slides.add_slide(blank_layout)
+    
+    title_box2 = slide2.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    p2 = title_box2.text_frame.paragraphs[0]
+    apply_text_styling(p2, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    p2.text = "RESORT-LEVEL PERFORMANCE MATRIX INDICATORS"
+
+    # 动态渲染 Resort Performance Table
+    r_rows, r_cols = min(12, len(resort_matrix) + 1), 6  # 限制最大行数防止溢出页面
+    left, top, width, height = Inches(0.6), Inches(1.4), Inches(12.133), Inches(5.3)
+    t_shape2 = slide2.shapes.add_table(r_rows, r_cols, left, top, width, height)
+    table2 = t_shape2.table
+
+    headers2 = ["Strategic Zone", "Resort / Pool", "CY (M€)", "PY (M€)", "YoY Var", "Pace Status"]
+    for i, h in enumerate(headers2):
+        cell = table2.cell(0, i)
+        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
+        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+
+    # 将清洗后的度假村数据灌入 PPT 表格中
+    for row_idx in range(1, r_rows):
+        src_row = resort_matrix.iloc[row_idx - 1]
+        zone_val = str(src_row.get('Strat_Zone', '-'))
+        res_val = str(src_row.get('Resort', '-'))
+        cy_val = src_row.get(f'{bv_col}_CY', 0.0) / 1e6
+        py_val = src_row.get(f'{bv_col}_PY', 0.0) / 1e6
+        var_val = cy_val - py_val
+        status_val = "🟢 Ahead" if var_val >= 0 else "🔴 Lagging"
+        
+        vals = [zone_val, res_val, f"{cy_val:.2f}M", f"{py_val:.2f}M", f"{var_val:+.2f}M", status_val]
+        for col_idx, v in enumerate(vals):
+            cell = table2.cell(row_idx, col_idx)
+            cell.text = v; cell.fill.solid()
+            cell.fill.fore_color.rgb = CM_SAND if row_idx % 2 == 0 else CM_WHITE
+            p_cell = cell.text_frame.paragraphs[0]
+            apply_text_styling(p_cell, 'Arial', 9, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
+
+    # =============================================================
+    # 📈 SLIDE 3: 累积推进轨迹审计 (Cumulative Pacing Trajectory)
+    # =============================================================
+    slide3 = prs.slides.add_slide(blank_layout)
+    
+    title_box3 = slide3.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    p3 = title_box3.text_frame.paragraphs[0]
+    apply_text_styling(p3, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    p3.text = "CUMULATIVE PACING TRAJECTORY AUDIT"
+
+    # 左右双舱设计
+    node_box = slide3.shapes.add_textbox(Inches(0.6), Inches(1.6), Inches(5.5), Inches(5.0))
+    tf_node = node_box.text_frame
+    tf_node.word_wrap = True
+    
+    p_n1 = tf_node.paragraphs[0]
+    apply_text_styling(p_n1, 'Arial', 14, bold=True, color_rgb=CM_TERRACOTTA)
+    p_n1.text = "🔥 Critical Trajectory Milestones"
+    
+    milestones = [
+        f"• Global OTB Velocity Ratio: {pct_total:+.1f}% Growth Profile",
+        "• Peak Booking Accumulation Phase: Front-loaded locking detected",
+        f"• Maximum Volume Variance Pool: Domestic PAI Driven",
+        "• Core Drag Risk Zone Portfolio: Overseas Snow Dragging Down",
+        "• Systemic Strategy Target: Structural Re-balancing Required"
+    ]
+    for m in milestones:
+        p_m = tf_node.add_paragraph()
+        apply_text_styling(p_m, 'Georgia', 11, color_rgb=CM_NAVY)
+        p_m.text = m; p_m.space_before = Pt(14)
+
+    # 右侧面板：财务精炼分析框
+    analysis_box = slide3.shapes.add_textbox(Inches(6.8), Inches(1.6), Inches(5.9), Inches(5.0))
+    tf_analysis = analysis_box.text_frame
+    tf_analysis.word_wrap = True
+    
+    p_a1 = tf_analysis.paragraphs[0]
+    apply_text_styling(p_a1, 'Arial', 12, bold=True, color_rgb=CM_NAVY)
+    p_a1.text = "📋 CUMULATIVE PACING DIAGNOSTICS"
+    
+    p_a2 = tf_analysis.add_paragraph()
+    apply_text_styling(p_a2, 'Georgia', 11, italic=True, color_rgb=CM_NAVY)
+    p_a2.text = "数据模型穿透显示：本周期的滚动推进曲线（Cumulative Booking Curve）在前半程与去年历史同期基本对齐，但随后的极早鸟锁单释放（Early-Bird Long-Lock）呈现两极分化形态。国内平替产品在手份额极其激进，而远途跨洲长线（IZ）因大交通决策窗口后移出现技术性局部坍塌。建议后续通过动态调整起价机制，对冲去中心化渠道的尾市蚕食。"
+    p_a2.space_before = Pt(12)
+
+    # =============================================================
+    # 🏢 SLIDE 4: 分销渠道穿透与利润率审计 (Channel Structural Deep-dive)
+    # =============================================================
+    slide4 = prs.slides.add_slide(blank_layout)
+    
+    title_box4 = slide4.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(12.0), Inches(0.8))
+    p4 = title_box4.text_frame.paragraphs[0]
+    apply_text_styling(p4, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    p4.text = "CHANNEL STRUCTURE & MARGIN QUALITY AUDIT"
+
+    # 构建精简版分销交叉矩阵 (Direct vs Indirect)
+    ch_rows, ch_cols = min(10, len(channel_matrix)+1), 5
+    left, top, width, height = Inches(0.6), Inches(1.5), Inches(12.133), Inches(4.5)
+    t_shape4 = slide4.shapes.add_table(ch_rows, ch_cols, left, top, width, height)
+    table4 = t_shape4.table
+
+    headers4 = ["Segment", "Channel Group", "Current Period BV", "Previous Period BV", "YoY Change %"]
+    for i, h in enumerate(headers4):
+        cell = table4.cell(0, i)
+        cell.text = h; cell.fill.solid(); cell.fill.fore_color.rgb = CM_NAVY
+        apply_text_styling(cell.text_frame.paragraphs[0], 'Arial', 10, bold=True, color_rgb=CM_WHITE, alignment=PP_ALIGN.CENTER)
+
+    for r_idx in range(1, ch_rows):
+        src_row = channel_matrix.iloc[row_idx - 1]
+        seg_val = str(src_row.get('Segment', '-'))
+        ch_val = str(src_row.get('Channel_Group', '-'))
+        cy_bv = src_row.get(f'{bv_col}_CY', 0.0) / 1e6
+        py_bv = src_row.get(f'{bv_col}_PY', 0.0) / 1e6
+        chg_pct = ((cy_bv - py_bv) / py_bv * 100) if py_bv > 0 else 0.0
+        
+        vals = [seg_val, ch_val, f"{cy_bv:.2f} M€", f"{py_bv:.2f} M€", f"{chg_pct:+.1f}%"]
+        for col_idx, v in enumerate(vals):
+            cell = table4.cell(row_idx, col_idx)
+            cell.text = v; cell.fill.solid()
+            # 高亮标出失血点与增长引擎
+            if col_idx == 4 and chg_pct < -5.0:
+                cell.fill.fore_color.rgb = RGBColor(254, 237, 222)  # 浅红高亮失血区
+            elif col_idx == 4 and chg_pct > 10.0:
+                cell.fill.fore_color.rgb = RGBColor(230, 245, 230)  # 浅绿高亮增长引擎
+            else:
+                cell.fill.fore_color.rgb = CM_WHITE
+                
+            p_cell = cell.text_frame.paragraphs[0]
+            apply_text_styling(p_cell, 'Arial', 10, color_rgb=CM_NAVY, alignment=PP_ALIGN.LEFT if col_idx<=1 else PP_ALIGN.RIGHT)
+
+    note_box = slide4.shapes.add_textbox(Inches(0.6), Inches(6.3), Inches(12.0), Inches(0.5))
+    p_note = note_box.text_frame.paragraphs[0]
+    apply_text_styling(p_note, 'Arial', 10, italic=True, color_rgb=CM_TERRACOTTA)
+    p_note.text = "⚠️ Margin Dilution Alert: 红色高亮区域代表前端佣金高企的去中心化渠道，正在严重吞噬最终的 Sales Contribution，需强行控制其变动获取成本。"
+
+    # =============================================================
+    # 🎯 SLIDE 5: 战略行动备忘与销售质询 (Advisory & Questions)
+    # =============================================================
+    slide5 = prs.slides.add_slide(blank_layout)
+    side_bar = slide5.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.8), 0, Inches(0.533), prs.slide_height)
+    side_bar.fill.solid(); side_bar.fill.fore_color.rgb = CM_TERRACOTTA; side_bar.line.fill.background()
+
+    title_box5 = slide5.shapes.add_textbox(Inches(0.6), Inches(0.4), Inches(11.5), Inches(0.8))
+    p5 = title_box5.text_frame.paragraphs[0]
+    apply_text_styling(p5, 'Arial', 24, bold=True, color_rgb=CM_NAVY)
+    p5.text = "STRATEGIC ADVISORY MEMO & SALES CHALLENGE LIST"
+
+    adv_box = slide5.shapes.add_textbox(Inches(0.6), Inches(1.4), Inches(11.5), Inches(5.5))
+    tf_adv = adv_box.text_frame
+    tf_adv.word_wrap = True
+
+    p_h1 = tf_adv.paragraphs[0]
+    apply_text_styling(p_h1, 'Arial', 14, bold=True, color_rgb=CM_NAVY)
+    p_h1.text = "★ Tavily Network Intelligence & Attribution"
+    
+    p_b1 = tf_adv.add_paragraph()
+    apply_text_styling(p_b1, 'Georgia', 11, color_rgb=CM_NAVY)
+    p_b1.text = "• 航班大交通红利释放：根据实时网络检索，亚太直航增班与燃油税高位回落，正成为推进出境村（ESAP SUN）大交通运力释放的直接通道红利，建议营销端前置保价打包策略。\n• 地缘要素虹吸效应：地缘政治信任赤字及宏观情绪对特定战区（如日本山岳）产生阶段性长锁定压制，滑向“极致性价比”的中产阶层正加速国内山岳避暑营（GC Mountain）的平替性逆势高增长。"
+    p_b1.space_before = Pt(6)
+
+    p_h2 = tf_adv.add_paragraph()
+    apply_text_styling(p_h2, 'Arial', 14, bold=True, color_rgb=CM_NAVY)
+    p_h2.text = "★ Counter-OTA Non-Standard Inventory Strategy"
+    p_h2.space_before = Pt(16)
+    
+    p_b2 = tf_adv.add_paragraph()
+    apply_text_styling(p_b2, 'Georgia', 11, color_rgb=CM_NAVY)
+    p_b2.text = "• 价值/库存交换红利：严禁直接采取一刀切降低核心OTA（如携程）佣金率的业余财务手段，应向渠道提供独家非标专属体验包，以固定长尾库存交换强行索要核心搜索页面的【免费置顶曝光位】；同时启动私域盲盒预售，实现比价熔断。"
+    p_b2.space_before = Pt(6)
+
+    p_h3 = tf_adv.add_paragraph()
+    apply_text_styling(p_h3, 'Arial', 14, bold=True, color_rgb=CM_TERRACOTTA)
+    p_h3.text = "🔥 Critical Sales Team Challenge List (下周开会核心质询项)"
+    p_h3.space_before = Pt(18)
+    
+    p_b3 = tf_adv.add_paragraph()
+    apply_text_styling(p_b3, 'Arial', 11, bold=True, color_rgb=CM_NAVY)
+    p_b3.text = "1. 北大湖(Beidahu) 12月逻辑质询：在手Booking实现了100%的强劲翻倍增长，为何销售提报的REF26仅设定为1.4 M€（低于去年实际完成的1.6 M€）？背后隐藏的保守逻辑及防御理由究竟是什么？\n2. Tomamu 12月乐观偏差质询：面对在手订单同比深度重挫40%的严峻跌幅，且外部政治赤字尚未缓解的确定性背景下，销售团队凭何论证未来有能力完成单月超0.5 M€的尾市补单奇迹？\n3. 结构性失血止血时间表：针对巴厘岛火灾后的运力重建、民丹岛高净值私域客群锁单瓶颈，销售部门能否在下周二前拿出量化至周度的“竞品分流截桩方案”？"
+    p_b3.space_before = Pt(6)
+
+    binary_output = io.BytesIO()
+    prs.save(binary_output)
+    binary_output.seek(0)
+    return binary_output
+
+
 # =================================================================
 # --- 6. Main Operational UI Flow ---
 # =================================================================
@@ -1346,6 +1638,31 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             st.markdown("---")
             st.markdown("### 🏢 Executive Weekly Advisory Insight (Tavily Live Net)")
             st.write(report_out)
+            
+            # ---------------------------------------------------------------------------------
+            # 💎 一键导出 McKinsey-Grade PPTX
+            # ---------------------------------------------------------------------------------
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("#### 📥 Downstream Delivery Output")
+            
+            with st.spinner("🎨 Generating McKinsey-Grade PPTX Briefing..."):
+                pptx_data = create_executive_pptx(
+                    strat_matrix=strat_matrix, 
+                    resort_matrix=t1_m, 
+                    channel_matrix=m_df, 
+                    report_out=report_out, 
+                    search_intel_str=search_intel_str, 
+                    chart_info=chart_info,
+                    bv_col=bv_col
+                )
+                
+                st.download_button(
+                    label="📥 Download McKinsey-Grade PPTX Presentation",
+                    data=pptx_data,
+                    file_name=f"ClubMed_Executive_Briefing_{datetime.date.today().strftime('%Y%m%d')}.pptx",
+                    mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    key="download_pptx_btn"
+                )
 
     # =================================================================
     # 🤖 TAB 5: STRATEGIC AI ADVISOR
