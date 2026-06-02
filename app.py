@@ -1671,14 +1671,19 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                 )
 
     # =================================================================
-    # 🤖 TAB 5: STRATEGIC AI ADVISOR
-    # =================================================================
-    # =================================================================
-    # 🤖 TAB 5: STRATEGIC AI ADVISOR (Finance BP & 实时联网版)
+    # 🤖 TAB 5: STRATEGIC AI ADVISOR (完全体：联网 BP + 情境感知 + 一键清空)
     # =================================================================
     with tab5:
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>🤖 AI Finance BP & Strategic Advisor</h3>", unsafe_allow_html=True)
         st.markdown("<p style='color:#6C757D; font-size:0.9rem;'>作为您的专职 Finance BP，我将结合当前筛选的内部财务大盘透视数据，与 Google 实时检索的外部宏观情报，为您提供动态归因与盈利建议。</p>", unsafe_allow_html=True)
+        
+        # 🧹 新增：一键清空对话按钮
+        col_space, col_btn = st.columns([8, 2])
+        with col_btn:
+            if st.button("🗑️ 清空对话记录", use_container_width=True):
+                st.session_state.messages = []
+                st.rerun()  # 刷新页面清空历史气泡
+                
         st.markdown("---")
 
         if "messages" not in st.session_state: st.session_state.messages = []
@@ -1687,27 +1692,26 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             for m in st.session_state.messages:
                 with st.chat_message(m["role"]): st.markdown(m["content"])
 
-        if prompt := st.chat_input("向您的 Finance BP 提问 (例如: '结合最新日本汇率，分析长线滑雪的毛利缺口并给出售价建议')..."):
+        if prompt := st.chat_input("向您的 Finance BP 提问 (例如: '日本航班恢复得怎么样？' 或 '结合最新汇率分析长线滑雪的毛利缺口')..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
                 with st.chat_message("user"): st.write(prompt)
                 with st.chat_message("assistant"):
                     
                     # ==========================================
-                    # 🚀 步骤 1: 唤醒 Google Serper 实时检索引擎
+                    # 🌐 步骤 1: 唤醒 Google Serper 实时检索引擎
                     # ==========================================
                     with st.spinner("🌐 Finance BP 正在通过 Google Serper 雷达扫描全球外部情报..."):
                         import requests
                         import json
                         
                         serper_url = "https://google.serper.dev/search"
-                        # 从 secrets 安全读取 Key
                         headers = {
                             'X-API-KEY': st.secrets["SERPER_API_KEY"],
                             'Content-Type': 'application/json'
                         }
                         
-                        # 优化搜索词：加入当前年份锚点与业务强相关的修饰词
+                        # 组合搜索词：强制 2026 年锚点，引入业务关联词
                         payload = json.dumps({
                             "q": f"2026 {prompt} 旅游 航班 政策 经济影响", 
                             "gl": "cn", 
@@ -1721,7 +1725,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                             
                             intel_snippets = []
                             if "organic" in search_results:
-                                for r in search_results["organic"][:5]: # 提取前5条最高权重搜索结果
+                                for r in search_results["organic"][:5]:
                                     intel_snippets.append(f"🔍 来源: {r.get('title')}\n📝 内容: {r.get('snippet')}\n")
                             live_intel = "\n".join(intel_snippets) if intel_snippets else "近期无高度相关的外部宏观波动信号。"
                         except Exception as e:
@@ -1732,7 +1736,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     # ==========================================
                     with st.spinner("📊 正在提取大盘财务数据与通道表现..."):
                         try:
-                            # 摒弃原来无意义的 head(10)，改为动态生成当前筛选条件下的战略交叉矩阵
+                            # 动态生成当前筛选条件下的战略交叉矩阵
                             bp_matrix = build_strategic_summary_matrix(df_cy_tags, df_py_tags, bv_col)
                             bp_data_str = (
                                 f"=== CURRENT FILTERED FINANCIAL BASELINE ({chart_info}) ===\n"
@@ -1741,39 +1745,41 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                                 "========================================================\n"
                             )
                         except Exception:
-                            # 容错降级机制
+                            # 容错降级机制，防止 matrix 函数因缺少列报错
                             bp_data_str = df_cy_tags.head(20).to_string() 
 
                     # ==========================================
                     # 🧠 步骤 3: 注入 Finance BP 灵魂并触发大模型
                     # ==========================================
-                    with st.spinner("💡 Finance BP 正在交叉校验内部 P&L 与外部风险，生成核心洞察..."):
+                    with st.spinner("💡 Finance BP 正在思考..."):
                         
-                        # 强制设定 Finance BP 角色与回答框架
+                        # 动态高情商 Prompt：看人下菜碟，拒绝死板汇报
                         bp_prompt = (
-                            f"【Finance BP 核心提问】: {prompt}\n\n"
-                            f"请以我的专职 Finance BP 身份作答。请严格遵循以下结构：\n"
-                            f"1. 【外部环境定调】：一针见血地总结 Google 实时情报对当前业务的影响。\n"
-                            f"2. 【内部财务穿透】：指出内部数据矩阵中的核心‘失血点’或‘增长极’。\n"
-                            f"3. 【BP 战略建议】：结合以上两点，提出 2-3 个关于运力截留、渠道对冲或定价杠杆的实战 Action Plan。"
+                            f"【我的提问】: {prompt}\n\n"
+                            f"【你的角色与沟通风格】\n"
+                            f"你是我最信任的专职 Finance BP。请完全放弃AI的机械感，像一个真实、干练且懂业务的同事一样和我交流。\n\n"
+                            f"【核心交互法则（请严格遵守）】\n"
+                            f"1. 像人一样聊天：如果我只是在抛出简短疑问（例如“马代航班多吗”、“日本最近有什么政策”），请用一两句大白话直接告诉我答案，就像我们在办公室走廊里随口交流一样。**绝对禁止长篇大论或套用任何分析框架**。\n"
+                            f"2. 懂进退，看场景：只有当我的提问明确属于【深度诊断】（如“结合外部信息分析一下失血点”、“帮我做个预算预测”）时，你才需要调动全量数据，为我提供包含外部定调和内部穿透的深度建议。\n"
+                            f"3. 视觉极简：放弃死板的机器排版（不要滥用【】或机械的 1.2.3.）。用自然、流畅的段落说话，保持沟通的通透与高级感。"
                         )
 
                         insights = generate_weekly_diagnostics(
                             context_info=chart_info, 
-                            matrix_summary_str=bp_data_str,  # <--- 传入整合后的专业财务矩阵
-                            search_intel_str=live_intel,     # <--- 传入 Serper 获取的实时新闻
+                            matrix_summary_str=bp_data_str, 
+                            search_intel_str=live_intel,     
                             chat_history=st.session_state.messages[:-1], 
-                            current_prompt=bp_prompt         # <--- 传入带有 BP 约束的指令
+                            current_prompt=bp_prompt         
                         )
                         
-                        # 展示 AI 最终建议
+                        # 展示 AI 输出结果
                         st.markdown(insights)
                         
-                        # 增加信任度组件：让用户知道 AI 参考了哪些外部新闻
+                        # 信任审计组件
                         with st.expander("🌍 查看 Finance BP 刚刚引用的 Google 实时网络情报", expanded=False):
                             st.text(live_intel)
 
-                        # 保存历史对话
+                        # 保存对话记忆
                         st.session_state.messages.append({"role": "assistant", "content": insights})
 
 # =================================================================
