@@ -1677,7 +1677,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
         st.markdown("<h3 style='color:#051C2C; font-weight:700;'>🤖 AI Finance BP & Strategic Advisor</h3>", unsafe_allow_html=True)
         st.markdown("<p style='color:#6C757D; font-size:0.9rem;'>作为您的专职 Finance BP，我将结合当前筛选的内部财务大盘透视数据，与 Google 实时检索的外部宏观情报，为您提供动态归因与盈利建议。</p>", unsafe_allow_html=True)
         
-        # 🧹 新增：一键清空对话按钮
+        # 🧹 一键清空对话按钮
         col_space, col_btn = st.columns([8, 2])
         with col_btn:
             if st.button("🗑️ 清空对话记录", use_container_width=True):
@@ -1692,7 +1692,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
             for m in st.session_state.messages:
                 with st.chat_message(m["role"]): st.markdown(m["content"])
 
-        if prompt := st.chat_input("向您的 Finance BP 提问 (例如: '日本航班恢复得怎么样？' 或 '结合最新汇率分析长线滑雪的毛利缺口')..."):
+        if prompt := st.chat_input("向您的 Finance BP 提问 (例如: '最近马代的航班恢复得怎么样？' 或 '结合数据帮我看看日本线的毛利')..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with chat_container:
                 with st.chat_message("user"): st.write(prompt)
@@ -1701,7 +1701,7 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     # ==========================================
                     # 🌐 步骤 1: 唤醒 Google Serper 实时检索引擎
                     # ==========================================
-                    with st.spinner("🌐 Finance BP 正在通过 Google Serper 雷达扫描全球外部情报..."):
+                    with st.spinner("🌐 Finance BP 正在扫描外网情报..."):
                         import requests
                         import json
                         
@@ -1711,9 +1711,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                             'Content-Type': 'application/json'
                         }
                         
-                        # 组合搜索词：强制 2026 年锚点，引入业务关联词
+                        # 最干净、指向性最强的搜索词
                         payload = json.dumps({
-                            "q": f"2026 {prompt} 旅游 航班 政策 经济影响", 
+                            "q": f"2026 {prompt}", 
                             "gl": "cn", 
                             "hl": "zh-cn"
                         })
@@ -1727,9 +1727,9 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                             if "organic" in search_results:
                                 for r in search_results["organic"][:5]:
                                     intel_snippets.append(f"🔍 来源: {r.get('title')}\n📝 内容: {r.get('snippet')}\n")
-                            live_intel = "\n".join(intel_snippets) if intel_snippets else "近期无高度相关的外部宏观波动信号。"
+                            live_intel = "\n".join(intel_snippets) if intel_snippets else "近期无高度相关的外部客观数据信号。"
                         except Exception as e:
-                            live_intel = f"外部网络连接超时，降级为纯内部数据分析模式。报错: {e}"
+                            live_intel = f"外部网络连接超时，已降级为纯内部数据分析模式。报错: {e}"
 
                     # ==========================================
                     # 📊 步骤 2: 生成高管视角的财务数据切片
@@ -1753,15 +1753,15 @@ if uploaded_file := st.sidebar.file_uploader("Upload SalesData.csv", type=['csv'
                     # ==========================================
                     with st.spinner("💡 Finance BP 正在思考..."):
                         
-                        # 动态高情商 Prompt：看人下菜碟，拒绝死板汇报
+                        # 注入灵魂：高情商、懂业务、说人话的专属搭档 Prompt
                         bp_prompt = (
                             f"【我的提问】: {prompt}\n\n"
-                            f"【你的角色与沟通风格】\n"
-                            f"你是我最信任的专职 Finance BP。请完全放弃AI的机械感，像一个真实、干练且懂业务的同事一样和我交流。\n\n"
-                            f"【核心交互法则（请严格遵守）】\n"
-                            f"1. 像人一样聊天：如果我只是在抛出简短疑问（例如“马代航班多吗”、“日本最近有什么政策”），请用一两句大白话直接告诉我答案，就像我们在办公室走廊里随口交流一样。**绝对禁止长篇大论或套用任何分析框架**。\n"
-                            f"2. 懂进退，看场景：只有当我的提问明确属于【深度诊断】（如“结合外部信息分析一下失血点”、“帮我做个预算预测”）时，你才需要调动全量数据，为我提供包含外部定调和内部穿透的深度建议。\n"
-                            f"3. 视觉极简：放弃死板的机器排版（不要滥用【】或机械的 1.2.3.）。用自然、流畅的段落说话，保持沟通的通透与高级感。"
+                            f"【你的角色设定】\n"
+                            f"你是我的首席财务BP兼战略搭档。你的沟通风格应该像我们现在聊天一样：真诚、直接、高管思维。请完全脱离AI的机械感，不要拽毫无意义的官话。\n\n"
+                            f"【核心作答原则（必须严格遵守）】\n"
+                            f"1. 直奔主题，诚实作答：我问什么，你先答什么。如果我问具体的航班数，请直接从 Google 情报里找数字告诉我。**最重要的一点：如果情报里没有抓到具体的航班班次数字，请大大方方地承认（例如：‘老板，我扫了一圈外网最新的摘要，没看到具体的每周班次数字，目前的公开口径只提到……’），绝对不要拿内部财务大盘数据去硬凑字数或转移话题！**\n"
+                            f"2. 说“人话”，视觉极简：用自然的段落交流，就像我们在办公室喝咖啡时的口头汇报。坚决禁用机械的【模块一】【模块二】这种死板排版，也不要动不动就列1234。\n"
+                            f"3. 懂进退，点到为止：对于简单事实查询（如航班量、汇率），回答完客观事实即可。只有当我明确问“这对我们毛利有什么影响”、“你有什么建议”、“帮我看看内部数据怎么说”时，你才需要结合底层的财务矩阵给出深度的战术建议。"
                         )
 
                         insights = generate_weekly_diagnostics(
